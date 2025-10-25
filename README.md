@@ -400,8 +400,6 @@ For support and questions:
 
 ## Roadmap
 
-- [ ] Handwriting recognition
-- [ ] Multiple language support
 - [ ] Graphing calculator
 - [ ] Formula sheet library
 - [ ] Study mode with practice problems
