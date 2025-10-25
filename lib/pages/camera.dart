@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:provider/provider.dart';
 import '../database/database_helper.dart';
+import '../models/enums/capture_mode.dart';
 import '../models/math_result.dart';
 import '../providers/result_provider.dart';
 import '../services/image_processor.dart';
@@ -61,7 +62,8 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
   Rect? _centerFrame;
   bool _isFlashOn = false;
   List<DetectedShape> _detectedShapes = [];
-
+  CaptureMode _captureMode = CaptureMode.automatic;
+  bool isPressedCapture = false;
   @override
   void initState() {
     super.initState();
@@ -165,7 +167,7 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
               child: CircularProgressIndicator(color: primaryColor),
             ),
 
-          if (!_showSnapshot && _targetBox != null)
+          if (!_showSnapshot && _targetBox != null && _captureMode == CaptureMode.automatic)
             AnimatedBoxOverlay(
               targetBox: _targetBox!,
               currentBox: _animatedBox,
@@ -190,16 +192,6 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
             right: 0,
             child: !_showConfirmation ? Container(
               padding: const EdgeInsets.all(16),
-              // decoration: BoxDecoration(
-              //   gradient: LinearGradient(
-              //     begin: Alignment.topCenter,
-              //     end: Alignment.bottomCenter,
-              //     colors: [
-              //       Colors.black.withOpacity(0.6),
-              //       Colors.transparent,
-              //     ],
-              //   ),
-              // ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -225,6 +217,65 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
                             color: Colors.white,
                             size: 24,
                           ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Mode toggle button
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(
+                        color: Colors.white.withOpacity(0.3),
+                        width: 2,
+                      ),
+                    ),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () {
+                          final newMode = _captureMode == CaptureMode.automatic
+                              ? CaptureMode.manual
+                              : CaptureMode.automatic;
+
+                          setState(() {
+                            _captureMode = newMode;
+
+                            // Clear annotations immediately when switching to manual mode
+                            if (newMode == CaptureMode.manual) {
+                              _targetBox = null;
+                              _animatedBox = null;
+                              _stableFrameCount = 0;
+                              _lastDetectedBox = null;
+                              _stabilityStartTime = null;
+                              _detectionTimer?.cancel();
+                              _detectionTimer = null;
+                            }
+                          });
+                        },
+                        borderRadius: BorderRadius.circular(24),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _captureMode == CaptureMode.automatic
+                                  ? Icons.auto_awesome
+                                  : Icons.touch_app,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              _captureMode == CaptureMode.automatic ? 'Auto' : 'Manual',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -663,8 +714,6 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
     }
   }
 
-
-
   bool _isBoxInCenterFrame(Rect box) {
     if (_centerFrame == null) return true;
 
@@ -673,7 +722,6 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
   }
 
   void _processCameraImage(CameraImage image) async {
-
     if (_isProcessing || _isSheetVisible || _showSnapshot) return;
 
     final now = DateTime.now();
@@ -716,7 +764,7 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
       int maxTextLength = 3;
 
       for (TextBlock block in recognizedText.blocks) {
-        final scaledBox = _scaleRect(block.boundingBox, image);
+        final scaledBox = _scaleRect(block.boundingBox, image.width.toDouble(), image.height.toDouble(),);
 
         if (_isBoxInCenterFrame(scaledBox) &&
             _containsMathContent(block.text) &&
@@ -760,10 +808,12 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
           if (_stableFrameCount >= _requiredStableFrames) {
             _detectionTimer?.cancel();
             debugPrint('Box stable - capturing snapshot');
-            await _captureSnapshot(image, largestBox);
-            _stableFrameCount = 0;
-            _lastDetectedBox = null;
-            _stabilityStartTime = null;
+            if(_captureMode == CaptureMode.automatic || isPressedCapture){
+              await _captureSnapshot(image, largestBox);
+              _stableFrameCount = 0;
+              _lastDetectedBox = null;
+              _stabilityStartTime = null;
+            }
           }
         }
       } else {
@@ -781,8 +831,113 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
       _isProcessing = false;
     }
   }
+  Future<void> _pickFromGallery() async {
+    // Show loading dialog
+    if (mounted) {
+      _showLoadingDialog( message: 'Opening Gallery...');
+    }
+    try {
+      if (_cameraController != null &&
+          _cameraController!.value.isInitialized &&
+          _cameraController!.value.isStreamingImages) {
+        await _cameraController?.stopImageStream();
+      }
 
-  void _showLoadingDialog() {
+      final XFile? pickedImage = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1920,
+        maxHeight: 1080,
+        imageQuality: 85,
+      );
+
+      if (pickedImage == null) {
+        if (_cameraController != null &&
+            _cameraController!.value.isInitialized &&
+            !_cameraController!.value.isStreamingImages) {
+          _cameraController?.startImageStream(_processCameraImage);
+        }
+        return;
+      }
+
+
+
+      final bytes = await pickedImage.readAsBytes();
+      final inputImage = InputImage.fromFilePath(pickedImage.path);
+
+      final recognizedText = await _textRecognizer.processImage(inputImage);
+
+      Rect? largestBox;
+      int maxTextLength = 3;
+
+      final codec = await ui.instantiateImageCodec(bytes);
+      final frame = await codec.getNextFrame();
+      final image = frame.image;
+
+      final imageWidth = image.width.toDouble();
+      final imageHeight = image.height.toDouble();
+
+      for (TextBlock block in recognizedText.blocks) {
+        final scaledBox = _scaleRect(block.boundingBox,imageWidth,imageHeight,);
+
+        if (_isBoxInCenterFrame(scaledBox) &&
+            _containsMathContent(block.text) &&
+            block.text.length > maxTextLength) {
+          maxTextLength = block.text.length;
+          largestBox = scaledBox;
+        }
+      }
+
+      final screenSize = MediaQuery.of(context).size;
+
+      Rect displayBox;
+      if (largestBox != null) {
+        displayBox = largestBox;
+      } else {
+        final frameWidth = screenSize.width * _centerFrameWidthRatio;
+        final frameHeight = screenSize.height * _centerFrameHeightRatio;
+        displayBox = Rect.fromCenter(
+          center: screenSize.center(Offset.zero),
+          width: frameWidth,
+          height: frameHeight,
+        );
+      }
+
+      // Dismiss loading dialog
+      if (mounted) {
+        Navigator.pop(context);
+      }
+
+      if (mounted) {
+        setState(() {
+          _snapshotBytes = bytes;
+          _originalImageWidth = imageWidth;
+          _originalImageHeight = imageHeight;
+          _snapshotBox = displayBox;
+          _showSnapshot = true;
+          _isSheetVisible = false;
+          _showConfirmation = true;
+          _isScanning = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error picking from gallery: $e');
+
+      // Dismiss loading dialog on error
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error loading image: $e')),
+        );
+      }
+
+      if (_cameraController != null &&
+          _cameraController!.value.isInitialized &&
+          !_cameraController!.value.isStreamingImages) {
+        _cameraController?.startImageStream(_processCameraImage);
+      }
+    }
+  }
+  void _showLoadingDialog({String message =  'Loading image...'}) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -809,8 +964,8 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
                   ),
                 ),
                 const SizedBox(height: 16),
-                const Text(
-                  'Loading image...',
+                Text(
+                  message,
                   style: TextStyle(fontSize: 16),
                 ),
               ],
@@ -887,6 +1042,10 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
         _isSheetVisible = false;
         _isScanning = false; // Set to false immediately
         _showConfirmation = true; // Show confirmation immediately
+        if(isPressedCapture){
+          Navigator.pop(context);
+          isPressedCapture = false;
+        }
       });
     } catch (e) {
       debugPrint('Error capturing snapshot: $e');
@@ -895,223 +1054,13 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
   }
 
   Future<void> _manualCapture() async {
-    try {
-      await _cameraController?.stopImageStream();
-      await Future.delayed(const Duration(milliseconds: 100));
-
-      await _cameraController?.setFlashMode(FlashMode.off);
-
-      final XFile picture = await _cameraController!.takePicture();
-      final bytes = await picture.readAsBytes();
-
-      final inputImage = InputImage.fromFilePath(picture.path);
-      final recognizedText = await _textRecognizer.processImage(inputImage);
-
-      final codec = await ui.instantiateImageCodec(bytes);
-      final frame = await codec.getNextFrame();
-      final capturedImage = frame.image;
-
-      final capturedWidth = capturedImage.width.toDouble();
-      final capturedHeight = capturedImage.height.toDouble();
-
-      final previewSize = _cameraController!.value.previewSize!;
-      final previewWidth = previewSize.height;
-      final previewHeight = previewSize.width;
-
-      final screenSize = MediaQuery.of(context).size;
-
-      final previewAspect = previewWidth / previewHeight;
-      final screenAspect = screenSize.width / screenSize.height;
-
-      double displayWidth, displayHeight;
-      if (previewAspect > screenAspect) {
-        displayWidth = screenSize.width;
-        displayHeight = screenSize.width / previewAspect;
-      } else {
-        displayHeight = screenSize.height;
-        displayWidth = screenSize.height * previewAspect;
-      }
-
-      final offsetX = (screenSize.width - displayWidth) / 2;
-      final offsetY = (screenSize.height - displayHeight) / 2;
-
-      Rect? largestBox;
-      int maxTextLength = 0;
-
-      for (TextBlock block in recognizedText.blocks) {
-        if (_containsMathContent(block.text) && block.text.length > maxTextLength) {
-          maxTextLength = block.text.length;
-          largestBox = block.boundingBox;
-        }
-      }
-
-      Rect displayBox;
-
-      if (largestBox != null) {
-        final normalizedBox = Rect.fromLTRB(
-          (largestBox.left - offsetX) / displayWidth,
-          (largestBox.top - offsetY) / displayHeight,
-          (largestBox.right - offsetX) / displayWidth,
-          (largestBox.bottom - offsetY) / displayHeight,
-        );
-
-        displayBox = Rect.fromLTRB(
-          normalizedBox.left * screenSize.width,
-          normalizedBox.top * screenSize.height,
-          normalizedBox.right * screenSize.width,
-          normalizedBox.bottom * screenSize.height,
-        );
-      } else {
-        final frameWidth = screenSize.width * _centerFrameWidthRatio;
-        final frameHeight = screenSize.height * _centerFrameHeightRatio;
-        displayBox = Rect.fromCenter(
-          center: screenSize.center(Offset.zero),
-          width: frameWidth,
-          height: frameHeight,
-        );
-      }
-
-      setState(() {
-        _snapshotBytes = bytes;
-        _originalImageWidth = capturedWidth;
-        _originalImageHeight = capturedHeight;
-        _snapshotBox = displayBox;
-        _showSnapshot = true;
-        _isSheetVisible = false;
-        _showConfirmation = true;
-        _isScanning = false; // No scanning animation
-      });
-    } catch (e) {
-      debugPrint('Error capturing manually: $e');
-      _resetCamera();
-    }
+    _showLoadingDialog(message: 'Scanning...');
+    setState(() {
+      isPressedCapture = true;
+    });
   }
 
-  Future<void> _pickFromGallery() async {
-    try {
-      if (_cameraController != null &&
-          _cameraController!.value.isInitialized &&
-          _cameraController!.value.isStreamingImages) {
-        await _cameraController?.stopImageStream();
-      }
 
-      final XFile? pickedImage = await _imagePicker.pickImage(
-        source: ImageSource.gallery,
-        maxWidth: 1920,
-        maxHeight: 1080,
-        imageQuality: 85,
-      );
-
-      if (pickedImage == null) {
-        if (_cameraController != null &&
-            _cameraController!.value.isInitialized &&
-            !_cameraController!.value.isStreamingImages) {
-          _cameraController?.startImageStream(_processCameraImage);
-        }
-        return;
-      }
-
-      // Show loading dialog
-      if (mounted) {
-        _showLoadingDialog();
-      }
-
-      final bytes = await pickedImage.readAsBytes();
-      final inputImage = InputImage.fromFilePath(pickedImage.path);
-      final recognizedText = await _textRecognizer.processImage(inputImage);
-
-      final codec = await ui.instantiateImageCodec(bytes);
-      final frame = await codec.getNextFrame();
-      final image = frame.image;
-
-      final imageWidth = image.width.toDouble();
-      final imageHeight = image.height.toDouble();
-
-      final screenSize = MediaQuery.of(context).size;
-      final imageAspect = imageWidth / imageHeight;
-      final screenAspect = screenSize.width / screenSize.height;
-
-      double displayWidth, displayHeight;
-      if (imageAspect > screenAspect) {
-        displayWidth = screenSize.width;
-        displayHeight = screenSize.width / imageAspect;
-      } else {
-        displayHeight = screenSize.height;
-        displayWidth = screenSize.height * imageAspect;
-      }
-
-      final offsetX = (screenSize.width - displayWidth) / 2;
-      final offsetY = (screenSize.height - displayHeight) / 2;
-
-      Rect? largestBox;
-      int maxTextLength = 0;
-
-      for (TextBlock block in recognizedText.blocks) {
-        if (_containsMathContent(block.text) && block.text.length > maxTextLength) {
-          maxTextLength = block.text.length;
-          final imageBox = block.boundingBox;
-
-          // Scale from image coordinates to display coordinates
-          final scaleX = displayWidth / imageWidth;
-          final scaleY = displayHeight / imageHeight;
-
-          largestBox = Rect.fromLTRB(
-            imageBox.left * scaleX + offsetX,
-            imageBox.top * scaleY + offsetY,
-            imageBox.right * scaleX + offsetX,
-            imageBox.bottom * scaleY + offsetY,
-          );
-        }
-      }
-
-      Rect displayBox;
-      if (largestBox != null) {
-        displayBox = largestBox;
-      } else {
-        final frameWidth = screenSize.width * _centerFrameWidthRatio;
-        final frameHeight = screenSize.height * _centerFrameHeightRatio;
-        displayBox = Rect.fromCenter(
-          center: screenSize.center(Offset.zero),
-          width: frameWidth,
-          height: frameHeight,
-        );
-      }
-
-      // Dismiss loading dialog
-      if (mounted) {
-        Navigator.pop(context);
-      }
-
-      if (mounted) {
-        setState(() {
-          _snapshotBytes = bytes;
-          _originalImageWidth = imageWidth;
-          _originalImageHeight = imageHeight;
-          _snapshotBox = displayBox;
-          _showSnapshot = true;
-          _isSheetVisible = false;
-          _showConfirmation = true;
-          _isScanning = false;
-        });
-      }
-    } catch (e) {
-      debugPrint('Error picking from gallery: $e');
-
-      // Dismiss loading dialog on error
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading image: $e')),
-        );
-      }
-
-      if (_cameraController != null &&
-          _cameraController!.value.isInitialized &&
-          !_cameraController!.value.isStreamingImages) {
-        _cameraController?.startImageStream(_processCameraImage);
-      }
-    }
-  }
 
   void _resetCamera() {
     setState(() {
@@ -1132,12 +1081,12 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
     _cameraController?.startImageStream(_processCameraImage);
   }
 
-  Rect _scaleRect(Rect rect, CameraImage image) {
+  Rect _scaleRect(Rect rect, double width, double height) {
     final size = MediaQuery.of(context).size;
 
     // Swap width/height due to rotation
-    final imageWidth = image.width.toDouble();
-    final imageHeight = image.height.toDouble();
+    final imageWidth = width;
+    final imageHeight = height;
 
     final scaleX = size.width / imageWidth;
     final scaleY = size.height / imageHeight;

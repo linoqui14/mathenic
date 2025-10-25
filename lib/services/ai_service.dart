@@ -1,9 +1,10 @@
 import 'dart:convert';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import '../models/ai_analysis_result.dart';
 
 class AIService {
-  static const String _apiKey = 'AIzaSyBNgdu_9duXsVBlBjyjn2mxweUl7pLl_lM';
+  static String get _apiKey => dotenv.env['GEMINI_API_KEY'] ?? '';
 
   Future<AIAnalysisResult> analyzeImage(String base64Image, String subject) async {
     final model = GenerativeModel(

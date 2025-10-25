@@ -1,0 +1,1 @@
+enum CaptureMode { automatic, manual }
