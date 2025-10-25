@@ -7,7 +7,7 @@ plugins {
 android {
     namespace = "com.mathenic.mathenic"
     ndkVersion = flutter.ndkVersion
-    compileSdk = 36  // Changed from 36
+    compileSdk = 34  // Latest stable
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17  // Updated to Java 17
@@ -20,8 +20,8 @@ android {
 
     defaultConfig {
         applicationId = "com.mathenic.mathenic"
-        minSdk = 33
-        targetSdk = 36  // Changed from flutter.targetSdkVersion
+        minSdk = 25
+        targetSdk = 34
         versionCode = 1
         versionName = "1.0"
     }

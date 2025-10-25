@@ -364,31 +364,176 @@ flutter format .
 # Analyze code
 flutter analyze
 ```
+## Decisions and Tradeoffs
 
-## Contributing
+### Development Framework Choice
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+After spending **6+ hours** attempting to build this with Expo/React Native, I switched to Flutter due to critical limitations:
+
+**Expo Challenges:**
+- No reliable dependency for real-time text block detection with bounding boxes
+- Available OCR libraries only returned raw text without positional data
+- iOS-only solutions (not multiplatform)
+- Difficult to implement custom overlay annotations that adjust in real-time
+
+**Flutter Advantages:**
+- `google_mlkit_text_recognition` provides precise `TextBlock` objects with bounding boxes
+- Better camera stream processing with `CameraImage` for frame-by-frame analysis
+- Cross-platform support (Android & iOS) with consistent behavior
+- More mature ecosystem for computer vision tasks
+- Better native support
+
+### Image Handling Strategy
+
+**Crop Overlay Logic:**
+```dart
+// Added 40px padding around detected math content for context
+const padding = 40.0;
+final paddedRect = Rect.fromLTRB(
+  (cropRect.left - padding).clamp(0, screenSize.width),
+  (cropRect.top - padding).clamp(0, screenSize.height),
+  (cropRect.right + padding).clamp(0, screenSize.width),
+  (cropRect.bottom + padding).clamp(0, screenSize.height),
+);
+```
+
+**Why This Approach:**
+- Ensures mathematical context isn't cut off (e.g., exponents, subscripts)
+- Balances between precise cropping and maintaining readability
+- Handles edge cases where text touches screen boundaries
+
+**Image Coordinate Transformations:**
+1. Camera preview coordinates → scaled to screen size
+2. Screen coordinates → transformed to image coordinates with aspect ratio correction
+3. Cropped region → extracted using `Canvas.drawImageRect` for pixel-perfect accuracy
+
+### Animation and UX Choices
+
+**Real-time Box Adjustment:**
+The animated box overlay creates smooth transitions between detected regions using interpolation, not true real-time tracking. This was chosen because:
+- 3-frame stability requirement prevents false detections
+- 2-second timeout resets detection if box moves too much
+- Reduces jitter from ML Kit's frame-by-frame variations
+
+**Lottie Animations:**
+- Used for logo (`logo.json`) and scanning overlay (`scan.json`)
+- Lightweight vector animations (smaller APK size than GIFs/videos)
+- Smooth 60fps animations without custom drawing code
+
+### Data Storage Decision
+
+**Initial Plan:** Firebase Firestore + Firebase Storage
+
+**Final Implementation:** SQLite + Local Storage
+
+| Aspect | Firebase | SQLite + Local |
+|--------|----------|----------------|
+| **Offline Support** | Requires sync logic | Native offline-first |
+| **Privacy** | Cloud storage concerns | Data stays on device |
+| **Cost** | Paid for storage/reads | Free |
+| **Implementation Time** | Auth setup + Firestore rules | Faster MVP |
+| **Portability** | Provider-specific migrations | Easy to swap implementations |
+
+**Abstraction Layer:**
+The database implementation is not bound to any specific storage type, making it easy to switch to Firebase later without changing business logic.
+
+### AI Service Selection
+
+**Chose Google Gemini** because:
+- Already had API access (no setup delay)
+- Multimodal input (image + text prompts)
+- Generous free tier (60 requests/minute)
+- Markdown-formatted responses for step-by-step solutions
+
+**Lazy Loading Pattern:**
+```dart
+// 1. Quick question extraction
+final question = await _extractQuestion(imageBase64);
+
+// 2. Show UI immediately with "Loading..." states
+resultProvider.setResultWithoutSaving(tempResult);
+
+// 3. Fetch answer and solution in background
+final answer = await _getAnswer(question, subject);
+final solution = await _getSolution(question, subject);
+```
+
+This keeps the UI responsive while AI processes requests.
+
+---
+
+## Known Limitations
+
+### Current Constraints
+
+
+1. **Detection Accuracy:**
+   - Requires good lighting conditions
+   - Struggles with handwriting (ML Kit optimized for printed text)
+   - False positives on decorative math symbols in textbooks
+
+2. **Crop Accuracy:**
+   - Padding is hardcoded (40px) - doesn't scale with device size
+   - May crop incorrectly on tablets with different aspect ratios
+
+### What I Would Do Next (With More Time)
+
+#### Short-term Improvements (1-2 weeks)
+
+
+3. **Dynamic Padding:**
+   ```dart
+   final padding = screenSize.shortestSide * 0.05; // 5% of screen
+   ```
+
+5. **Error Boundaries:**
+   - Wrap all async operations in try-catch with user-friendly messages
+   - Add retry logic for network failures
+
+#### Long-term Enhancements (1-2 months)
+
+1. **Handwriting Support:**
+   - Train custom ML model on handwritten math dataset
+   - Use Firebase ML Custom Models for device-specific optimization
+
+2. **Advanced Detection:**
+   - Detect equations spanning multiple lines
+   - Group related TextBlocks by proximity
+   - Handle matrices and complex notation
+
+3. **Firebase Migration:**
+   - Implement cloud sync for cross-device history
+   - Add user authentication for personalized learning
+   - Store anonymized data for improving AI accuracy
+
+4. **Performance Optimization:**
+   - Use `compute()` isolates for image processing
+   - Cache Gemini responses to reduce API calls
+   - Implement progressive image loading
+
+5. **Accessibility:**
+   - VoiceOver/TalkBack support for detected equations
+   - Haptic feedback when equation is detected
+   - Voice commands for capture
+
+6. **Testing:**
+   - Unit tests for coordinate transformations
+   - Integration tests for camera lifecycle
+   - Widget tests for UI components
+
+#### Future Features
+
+- **Graph plotting:** Render detected equations as graphs
+- **History export:** PDF/CSV export with solutions
+- **Offline AI:** On-device TensorFlow Lite for basic arithmetic
+- **Collaborative learning:** Share problems with study groups
+- **AR mode:** Overlay solutions on textbook pages
 
 ### Coding Standards
 - Follow [Effective Dart](https://dart.dev/guides/language/effective-dart) guidelines
 - Use meaningful variable and function names
 - Add comments for complex logic
 - Write unit tests for new features
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Support
-
-For support and questions:
-- **Email**: support@mathenic.app
-- **Issues**: [GitHub Issues](https://github.com/yourusername/mathenic/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/mathenic/discussions)
 
 ## Acknowledgments
 
@@ -411,3 +556,5 @@ For support and questions:
 **Made with ❤️ by the MATHENIC Team**
 
 *Scan. Solve. Learn.*
+
+
