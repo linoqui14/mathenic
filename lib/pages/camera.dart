@@ -122,13 +122,7 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
   }
 
   @override
-  @override
   Widget build(BuildContext context) {
-    // Add disposal check at the start
-    if (!mounted) {
-      return const SizedBox.shrink();
-    }
-
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final primaryColor = isDark ? AppColors.darkPrimary : AppColors.lightPrimary;
 
@@ -150,18 +144,14 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
                   color: primaryColor,
                   isScanning: _isScanning,
                   onBoxChanged: (newBox) {
-                    if (mounted) {
-                      setState(() {
-                        _snapshotBox = newBox;
-                      });
-                    }
+                    setState(() {
+                      _snapshotBox = newBox;
+                    });
                   },
                 ),
               ],
             )
-          else if (_isCameraInitialized &&
-              _cameraController != null &&
-              _cameraController!.value.isInitialized)
+          else if (_isCameraInitialized && _cameraController != null)
             SizedBox.expand(
               child: FittedBox(
                 fit: BoxFit.cover,
@@ -182,11 +172,9 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
               targetBox: _targetBox!,
               currentBox: _animatedBox,
               onBoxUpdate: (box) {
-                if (mounted) {
-                  setState(() {
-                    _animatedBox = box;
-                  });
-                }
+                setState(() {
+                  _animatedBox = box;
+                });
               },
               color: primaryColor,
               pulseAnimation: _pulseAnimation,
@@ -233,6 +221,7 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
                       ),
                     ),
                   ),
+                  // Mode toggle button
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     decoration: BoxDecoration(
@@ -247,8 +236,6 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
                       color: Colors.transparent,
                       child: InkWell(
                         onTap: () {
-                          if (!mounted) return;
-
                           final newMode = _captureMode == CaptureMode.automatic
                               ? CaptureMode.manual
                               : CaptureMode.automatic;
@@ -256,6 +243,7 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
                           setState(() {
                             _captureMode = newMode;
 
+                            // Clear annotations immediately when switching to manual mode
                             if (newMode == CaptureMode.manual) {
                               _targetBox = null;
                               _animatedBox = null;
@@ -297,6 +285,8 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
             ) : const SizedBox.shrink(),
           ),
 
+
+          // Bottom navigation (hide when snapshot is shown)
           if (!_showSnapshot)
             Positioned(
               bottom: 80,
@@ -359,31 +349,33 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
                         ),
                       ),
                     ),
-                    Container(
-                      width: 50,
-                      height: 50,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: _isFlashOn
-                            ? Colors.amber.withOpacity(0.3)
-                            : Colors.white.withOpacity(0.15),
-                        border: Border.all(
+                    Center(
+                      child: Container(
+                        width: 50,
+                        height: 50,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
                           color: _isFlashOn
-                              ? Colors.amber
-                              : Colors.white.withOpacity(0.3),
-                          width: 2,
+                              ? Colors.amber.withOpacity(0.3)
+                              : Colors.white.withOpacity(0.15),
+                          border: Border.all(
+                            color: _isFlashOn
+                                ? Colors.amber
+                                : Colors.white.withOpacity(0.3),
+                            width: 2,
+                          ),
                         ),
-                      ),
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          onTap: _toggleFlash,
-                          borderRadius: BorderRadius.circular(28),
-                          child: Center(
-                            child: Icon(
-                              _isFlashOn ? Icons.flash_on : Icons.flash_off,
-                              color: _isFlashOn ? Colors.amber : Colors.white,
-                              size: 25,
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: _toggleFlash,
+                            borderRadius: BorderRadius.circular(28),
+                            child: Center(
+                              child: Icon(
+                                _isFlashOn ? Icons.flash_on : Icons.flash_off,
+                                color: _isFlashOn ? Colors.amber : Colors.white,
+                                size: 25,
+                              ),
                             ),
                           ),
                         ),
@@ -413,6 +405,7 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
+                    // Reset button
                     Container(
                       width: 64,
                       height: 64,
@@ -439,6 +432,7 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
                         ),
                       ),
                     ),
+                    // Confirm button
                     Container(
                       width: 80,
                       height: 80,
@@ -465,6 +459,7 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
                         ),
                       ),
                     ),
+                    // Placeholder for symmetry
                     const SizedBox(
                       width: 64,
                       height: 64,
@@ -811,7 +806,12 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
             }
           }
         }
-      } else {
+      }
+      else {
+        if(isPressedCapture){
+          Navigator.pop(context);
+          isPressedCapture = false;
+        }
         _stableFrameCount = 0;
         _lastDetectedBox = null;
         _stabilityStartTime = null;
@@ -820,21 +820,9 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
           _animatedBox = null;
         });
       }
-      if(isPressedCapture){
-        Navigator.pop(context);
-        isPressedCapture = false;
-      }
     } catch (e) {
-      if(isPressedCapture){
-        Navigator.pop(context);
-        isPressedCapture = false;
-      }
       debugPrint('Error processing frame: $e');
     } finally {
-      if(isPressedCapture){
-        Navigator.pop(context);
-        isPressedCapture = false;
-      }
       _isProcessing = false;
     }
   }
@@ -1055,10 +1043,6 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
         }
       });
     } catch (e) {
-      if(isPressedCapture){
-        Navigator.pop(context);
-        isPressedCapture = false;
-      }
       debugPrint('Error capturing snapshot: $e');
       _resetCamera();
     }
