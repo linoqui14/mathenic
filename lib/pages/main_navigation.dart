@@ -50,7 +50,7 @@ class _MainNavigationState extends State<MainNavigation> {
         margin: const EdgeInsets.all(0),
         padding: const EdgeInsets.only(top: 10),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(10)),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.1),
@@ -59,7 +59,7 @@ class _MainNavigationState extends State<MainNavigation> {
           ],
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(10)),
           child: NavigationBar(
             selectedIndex: _currentIndex,
             onDestinationSelected: (index) {
