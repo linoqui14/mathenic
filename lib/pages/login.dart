@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lottie/lottie.dart';
 import '../theme/app_theme.dart';
 import 'camera.dart';
 import 'main_navigation.dart';
@@ -57,23 +58,38 @@ class _LoginPageState extends State<LoginPage> {
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.only(bottom: 24, left: 24, right: 24),
             child: Form(
               key: _formKey,
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  Lottie.asset(
+                    'assets/lottie/logo.json',
+                    width: 250,
+                    height: 250,
+                    fit: BoxFit.fitWidth,
+                  ),
                   Text(
-                    'Welcome Back',
+                    'MATHENIC',
                     style: TextStyle(
-                      fontSize: 32,
+                      fontSize: 35,
                       fontWeight: FontWeight.bold,
                       color: textColor,
                     ),
                     textAlign: TextAlign.center,
                   ),
-                  const SizedBox(height: 8),
+                  Text(
+                    'Scan. Solve. Learn.',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: textColor,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 48),
                   Text(
                     'Sign in to continue',
                     style: TextStyle(
@@ -82,7 +98,7 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                     textAlign: TextAlign.center,
                   ),
-                  const SizedBox(height: 48),
+                  const SizedBox(height: 8),
                   TextFormField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,

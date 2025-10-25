@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:lottie/lottie.dart';
 import 'package:provider/provider.dart';
 import '../models/math_result.dart';
 import '../providers/result_provider.dart';
@@ -115,42 +116,85 @@ class _ImageHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(10, 50, 10, 10),
-      decoration: BoxDecoration(
-        borderRadius: const BorderRadius.all(Radius.circular(20)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+    return Consumer<ResultProvider>(
+      builder: (context, resultProvider, child) {
+        final result = resultProvider.currentResult;
+        final isLoading = result != null && _isResultLoading(result);
+
+        return Container(
+          margin: const EdgeInsets.fromLTRB(10, 50, 10, 10),
+          decoration: BoxDecoration(
+            borderRadius: const BorderRadius.all(Radius.circular(20)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: const BorderRadius.all(Radius.circular(20)),
-        child: File(imagePath).existsSync()
-            ? Image.file(
-          File(imagePath),
-          fit: BoxFit.cover,
-          gaplessPlayback: true,
-          errorBuilder: (context, error, stackTrace) {
-            return Container(
+          child: ClipRRect(
+            borderRadius: const BorderRadius.all(Radius.circular(20)),
+            child: File(imagePath).existsSync()
+                ? Stack(
+              fit: StackFit.expand,
+              children: [
+                Image.file(
+                  File(imagePath),
+                  fit: BoxFit.cover,
+                  gaplessPlayback: true,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      color: Colors.grey[300],
+                      child: const Center(
+                        child: Icon(Icons.broken_image, size: 50),
+                      ),
+                    );
+                  },
+                ),
+                if(isLoading)
+                  Container(
+                  // margin: const EdgeInsets.fromLTRB(10, 50, 10, 10),
+                  decoration: BoxDecoration(
+                    borderRadius: const BorderRadius.all(Radius.circular(20)),
+                    color: Colors.black.withOpacity(0.5),
+                  ),
+                  child: Center(
+                    child: Lottie.asset(
+                      'assets/lottie/scan.json',
+                      // width:1000,
+                      height: 300,
+                      fit: BoxFit.fitWidth,
+                    ),
+                  ),
+                ),
+              ],
+            )
+                : Container(
               color: Colors.grey[300],
               child: const Center(
-                child: Icon(Icons.broken_image, size: 50),
+                child: Icon(Icons.image_not_supported, size: 50),
               ),
-            );
-          },
-        )
-            : Container(
-          color: Colors.grey[300],
-          child: const Center(
-            child: Icon(Icons.image_not_supported, size: 50),
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
+  }
+
+  bool _isResultLoading(MathResult result) {
+    return _isLoadingText(result.question) ||
+        _isLoadingText(result.answer) ||
+        _isLoadingText(result.solution);
+  }
+
+  bool _isLoadingText(String text) {
+    return text == 'Analyzing question...' ||
+        text == 'Generating solution...' ||
+        text == 'Calculating answer...' ||
+        text == 'Preparing...' ||
+        text == 'Loading...' ||
+        text == 'Please wait...';
   }
 }
 
