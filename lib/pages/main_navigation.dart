@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../theme/app_theme.dart';
 import 'camera.dart';
 import 'result_page.dart';
@@ -12,23 +13,23 @@ class MainNavigation extends StatefulWidget {
 }
 
 class _MainNavigationState extends State<MainNavigation> {
-  int _currentIndex = 0;
+  int _currentIndex = 1;
 
   Widget _buildCurrentPage() {
     switch (_currentIndex) {
       case 0:
-        return CameraPage(
-          onNavigateToTab: (index) {
+        return ResultPage(
+          onNavigateToCamera: () {
             setState(() {
-              _currentIndex = index;
+              _currentIndex = 1;
             });
           },
         );
       case 1:
-        return ResultPage(
-          onNavigateToCamera: () {
+        return CameraPage(
+          onNavigateToTab: (index) {
             setState(() {
-              _currentIndex = 0;
+              _currentIndex = index;
             });
           },
         );
@@ -48,19 +49,23 @@ class _MainNavigationState extends State<MainNavigation> {
       body: _buildCurrentPage(), // Replace IndexedStack
       bottomNavigationBar: Container(
         margin: const EdgeInsets.all(0),
-        padding: const EdgeInsets.only(top: 10),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(10)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 10,
-            ),
-          ],
-        ),
         child: ClipRRect(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(10)),
           child: NavigationBar(
+            labelTextStyle: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.selected)) {
+                return TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: primaryColor,
+                );
+              }
+              return const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.normal,
+                color: Colors.grey,
+              );
+            }),
+            labelPadding: const EdgeInsets.only(bottom: 7),
             selectedIndex: _currentIndex,
             onDestinationSelected: (index) {
               setState(() {
@@ -68,31 +73,59 @@ class _MainNavigationState extends State<MainNavigation> {
               });
             },
             backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-            indicatorColor: primaryColor.withOpacity(0.2),
+            indicatorColor: Colors.transparent,
             height: 65,
             elevation: 0,
             labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
             destinations: [
               NavigationDestination(
-                icon: Icon(Icons.camera_alt_outlined, color: Colors.grey),
-                selectedIcon: Icon(Icons.camera_alt, color: primaryColor),
+                icon: FaIcon(FontAwesomeIcons.keyboard, color: Colors.grey, size: 20),
+                selectedIcon: FaIcon(FontAwesomeIcons.keyboard, color: primaryColor, size: 25),
+                label: 'Search',
+              ),
+              NavigationDestination(
+                icon: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    FaIcon(FontAwesomeIcons.camera, color: Colors.grey, size: 20),
+                    Container(
+                      margin: const EdgeInsets.only(top: 2.5),
+                      width: 5,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: Colors.cyan,
+                        shape: BoxShape.circle,
+                      ),
+                    )
+                  ],
+                ),
+                selectedIcon: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    FaIcon(FontAwesomeIcons.camera, color: primaryColor, size: 25),
+                    Container(
+                      margin: const EdgeInsets.only(top: 2),
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: Colors.cyan,
+                        shape: BoxShape.circle,
+                      ),
+                    )
+                  ],
+                ),
                 label: 'Camera',
               ),
               NavigationDestination(
-                icon: Icon(Icons.list_alt_outlined, color: Colors.grey),
-                selectedIcon: Icon(Icons.list_alt, color: primaryColor),
-                label: 'Result',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.person_outline, color: Colors.grey),
-                selectedIcon: Icon(Icons.person, color: primaryColor),
+                icon: FaIcon(FontAwesomeIcons.faceSmile, color: Colors.grey, size: 20),
+                selectedIcon: FaIcon(FontAwesomeIcons.faceSmile, color: primaryColor, size: 25),
                 label: 'Profile',
               ),
             ],
-          ),
+          )
         ),
       ),
-      extendBody: true,
+      // extendBody: true,
     );
   }
 }

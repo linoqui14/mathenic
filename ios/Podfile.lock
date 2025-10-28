@@ -148,7 +148,7 @@ EXTERNAL SOURCES:
 
 SPEC CHECKSUMS:
   camera_avfoundation: adb0207d868b2d873e895371d88448399ab78d87
-  Flutter: e0871f40cf51350855a761d2e70bf5af5b9b5de7
+  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   google_mlkit_barcode_scanning: d42717e8a28a5523bcb0b8a285c7d19555021c68
   google_mlkit_commons: 3857c1e9f23ca02073f8dd34a7a3580feb814cef
   google_mlkit_text_recognition: 9225b4bf1b176dd18b05c9594e5347834e793440
@@ -172,6 +172,6 @@ SPEC CHECKSUMS:
   shared_preferences_foundation: fcdcbc04712aee1108ac7fda236f363274528f78
   sqflite_darwin: 5a7236e3b501866c1c9befc6771dfd73ffb8702d
 
-PODFILE CHECKSUM: 3abf05da86b5ca71530c047cb4c9157cfb731063
+PODFILE CHECKSUM: b248726c2723e44f245e5b62b96584bd6e45c1f0
 
 COCOAPODS: 1.15.2

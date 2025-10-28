@@ -3,10 +3,12 @@ import '../theme/app_theme.dart';
 
 class SubjectSelectionSheet extends StatelessWidget {
   final Function(String) onSubjectSelected;
+  final Function()? onClosed;
 
   const SubjectSelectionSheet({
     super.key,
     required this.onSubjectSelected,
+    this.onClosed,
   });
 
   static Future<void> show(BuildContext context, Function(String) onSubjectSelected) {
@@ -14,17 +16,21 @@ class SubjectSelectionSheet extends StatelessWidget {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      elevation: 0,
+      barrierColor: Colors.transparent,
+      isDismissible: true,
       builder: (context) => SubjectSelectionSheet(
         onSubjectSelected: onSubjectSelected,
       ),
+
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final backgroundColor = isDark ? AppColors.darkBackground : AppColors.lightBackground;
-    final textColor = isDark ? AppColors.darkText : AppColors.lightText;
+    final backgroundColor = AppColors.lightBackground;
+    final textColor =  AppColors.lightText;
 
     return Container(
       constraints: BoxConstraints(
@@ -57,7 +63,10 @@ class SubjectSelectionSheet extends StatelessWidget {
                 ),
                 IconButton(
                   icon: const Icon(Icons.close),
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: () => {
+                    Navigator.pop(context),
+                    if (onClosed != null) onClosed!(),
+                  },
                   color: textColor,
                 ),
               ],
@@ -102,8 +111,8 @@ class SubjectSelectionSheet extends StatelessWidget {
   }
 
   Widget _buildSubjectButton(BuildContext context, String subject, IconData icon) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textColor = isDark ? AppColors.darkText : AppColors.lightText;
+    // final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor =  AppColors.lightText;
 
     return Material(
       color: Colors.transparent,
@@ -117,24 +126,26 @@ class SubjectSelectionSheet extends StatelessWidget {
           width: double.infinity,
           padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16), // Reduced padding
           decoration: BoxDecoration(
-            color: isDark
-                ? Colors.grey[800]?.withOpacity(0.3)
-                : Colors.grey[200],
+            color: Color(0xfff6f6f6),
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: isDark ? Colors.grey[700]! : Colors.grey[300]!,
-              width: 1,
-            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.15),
+                blurRadius: 2,
+                offset: const Offset(0, 2),
+              ),
+            ],
           ),
           child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, color: textColor, size: 22), // Slightly smaller icon
-              const SizedBox(width: 14),
+              // Icon(icon, color: textColor, size: 22), // Slightly smaller icon
+              // const SizedBox(width: 14),
               Text(
                 subject,
                 style: TextStyle(
-                  fontSize: 15, // Slightly smaller text
-                  fontWeight: FontWeight.w500,
+                  fontSize: 16, // Slightly smaller text
+                  fontWeight: FontWeight.bold,
                   color: textColor,
                 ),
               ),

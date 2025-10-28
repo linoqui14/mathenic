@@ -1,10 +1,14 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class DraggableResizableBox extends StatefulWidget {
   final Rect initialBox;
   final Color color;
   final bool isScanning;
   final Function(Rect) onBoxChanged;
+  final Function(Rect)? onStable;
+  final Duration stabilityDuration;
 
   const DraggableResizableBox({
     super.key,
@@ -12,6 +16,8 @@ class DraggableResizableBox extends StatefulWidget {
     required this.color,
     required this.isScanning,
     required this.onBoxChanged,
+    this.onStable,
+    this.stabilityDuration = const Duration(milliseconds: 500),
   });
 
   @override
@@ -19,11 +25,17 @@ class DraggableResizableBox extends StatefulWidget {
 }
 
 class _DraggableResizableBoxState extends State<DraggableResizableBox>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late Rect currentBox;
   late AnimationController _scanController;
-  final double padding = 40.0;
-  final double minSize = 100.0; // Minimum box size
+  late AnimationController _stabilityController;
+  final double padding = 30.0;
+  final double minSize = 50.0;
+
+  bool _isStable = false;
+  bool _isHolding = false;
+  Timer? _stabilityTimer;
+  DateTime? _lastMoveTime;
 
   @override
   void initState() {
@@ -38,6 +50,13 @@ class _DraggableResizableBoxState extends State<DraggableResizableBox>
       duration: const Duration(milliseconds: 2000),
       vsync: this,
     )..repeat();
+
+    _stabilityController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+
+    _startStabilityCheck();
   }
 
   @override
@@ -57,10 +76,42 @@ class _DraggableResizableBoxState extends State<DraggableResizableBox>
   @override
   void dispose() {
     _scanController.dispose();
+    _stabilityController.dispose();
+    _stabilityTimer?.cancel();
     super.dispose();
   }
 
+  void _startStabilityCheck() {
+    _stabilityTimer?.cancel();
+    _stabilityTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+      if (_lastMoveTime != null) {
+        final timeSinceMove = DateTime.now().difference(_lastMoveTime!);
+        if (timeSinceMove >= widget.stabilityDuration && !_isStable && !_isHolding) {
+          setState(() {
+            _isStable = true;
+          });
+          if(widget.onStable != null) {
+            widget.onStable!(currentBox);
+          }
+          _stabilityController.forward();
+          HapticFeedback.heavyImpact();
+        }
+      }
+    });
+  }
+
+  void _resetStability() {
+    _lastMoveTime = DateTime.now();
+    if (_isStable) {
+      setState(() {
+        _isStable = false;
+      });
+      _stabilityController.reverse();
+    }
+  }
+
   void _handlePanUpdate(DragUpdateDetails details, HandlePosition position) {
+    _resetStability();
     setState(() {
       final delta = details.delta;
       final screenSize = MediaQuery.of(context).size;
@@ -104,7 +155,6 @@ class _DraggableResizableBoxState extends State<DraggableResizableBox>
           break;
       }
 
-      // Apply constraints
       newBox = _constrainBox(newBox, screenSize);
       currentBox = newBox;
       widget.onBoxChanged(currentBox);
@@ -112,14 +162,10 @@ class _DraggableResizableBoxState extends State<DraggableResizableBox>
   }
 
   Rect _constrainBox(Rect box, Size screenSize) {
-    // Ensure minimum size
     double width = box.width.clamp(minSize, screenSize.width);
     double height = box.height.clamp(minSize, screenSize.height);
-
-    // Ensure box stays within screen bounds
     double left = box.left.clamp(0.0, screenSize.width - width);
     double top = box.top.clamp(0.0, screenSize.height - height);
-
     return Rect.fromLTWH(left, top, width, height);
   }
 
@@ -128,14 +174,11 @@ class _DraggableResizableBoxState extends State<DraggableResizableBox>
     return Stack(
       fit: StackFit.expand,
       children: [
-        // Dark overlay with cutout - FULL SCREEN
         Positioned.fill(
           child: CustomPaint(
             painter: OverlayPainter(currentBox),
           ),
         ),
-
-        // Scanning animation
         if (widget.isScanning)
           Positioned.fill(
             child: AnimatedBuilder(
@@ -151,19 +194,32 @@ class _DraggableResizableBoxState extends State<DraggableResizableBox>
               },
             ),
           ),
-
-        // Box border
         Positioned.fill(
-          child: CustomPaint(
-            painter: BoxBorderPainter(currentBox, widget.color),
-          ),
+            child: CustomPaint(
+              painter: StabilityBoxPainter(
+                currentBox,
+                widget.color,
+                _isStable,
+              ),
+            )
         ),
-
-        // Center drag handle
         Positioned(
           left: currentBox.left,
           top: currentBox.top,
           child: GestureDetector(
+            onPanStart: (_) {
+              print("Handle pressed - holding");
+              setState(() {
+                _isHolding = true;
+              });
+            },
+            onPanEnd: (_) {
+              print("Handle released");
+              setState(() {
+                _isHolding = false;
+              });
+              // Optional: handle release
+            },
             onPanUpdate: (details) => _handlePanUpdate(details, HandlePosition.center),
             child: Container(
               width: currentBox.width,
@@ -172,8 +228,6 @@ class _DraggableResizableBoxState extends State<DraggableResizableBox>
             ),
           ),
         ),
-
-        // Corner handles
         _buildCornerHandle(HandlePosition.topLeft),
         _buildCornerHandle(HandlePosition.topRight),
         _buildCornerHandle(HandlePosition.bottomLeft),
@@ -206,13 +260,30 @@ class _DraggableResizableBoxState extends State<DraggableResizableBox>
       left: offset.dx,
       top: offset.dy,
       child: GestureDetector(
+        onPanStart: (_) {
+          print("Handle pressed - holding");
+          setState(() {
+            _isHolding = true;
+          });
+        },
+        onPanEnd: (_) {
+          print("Handle released");
+          setState(() {
+            _isHolding = false;
+          });
+          // Optional: handle release
+        },
         onPanUpdate: (details) => _handlePanUpdate(details, position),
         child: Container(
           width: 40,
           height: 40,
           color: Colors.transparent,
           child: CustomPaint(
-            painter: CornerHandlePainter(widget.color, position),
+            painter: CornerHandlePainter(
+              widget.color,
+              position,
+              _isStable,
+            ),
           ),
         ),
       ),
@@ -229,11 +300,9 @@ class OverlayPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Draw transparent black overlay everywhere
     final overlayPath = Path()
       ..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
 
-    // Cut out the annotated box area
     final cutoutPath = Path()
       ..addRRect(RRect.fromRectAndRadius(box, const Radius.circular(10)));
 
@@ -245,27 +314,51 @@ class OverlayPainter extends CustomPainter {
   bool shouldRepaint(covariant OverlayPainter oldDelegate) => box != oldDelegate.box;
 }
 
-class BoxBorderPainter extends CustomPainter {
+class StabilityBoxPainter extends CustomPainter {
   final Rect box;
   final Color color;
+  final bool isStable;
 
-  BoxBorderPainter(this.box, this.color);
+  StabilityBoxPainter(this.box, this.color, this.isStable);
 
   @override
   void paint(Canvas canvas, Size size) {
+    final center = box.center;
+    final scaledBox = Rect.fromCenter(
+      center: center,
+      width: box.width,
+      height: box.height,
+    );
+
+    if (isStable) {
+      final glowPaint = Paint()
+        ..color = color.withOpacity(0.3)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 20)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 4.0;
+
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(scaledBox, const Radius.circular(10)),
+        glowPaint,
+      );
+    }
+
     final borderPaint = Paint()
-      ..color = Colors.white
+      ..color = isStable ? color : Colors.white
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 3.0;
+      ..strokeWidth = isStable ? 2.0 : 0.0;
 
     canvas.drawRRect(
-      RRect.fromRectAndRadius(box, const Radius.circular(10)),
+      RRect.fromRectAndRadius(scaledBox, const Radius.circular(10)),
       borderPaint,
     );
   }
 
   @override
-  bool shouldRepaint(covariant BoxBorderPainter oldDelegate) => box != oldDelegate.box;
+  bool shouldRepaint(covariant StabilityBoxPainter oldDelegate) {
+    return box != oldDelegate.box ||
+        isStable != oldDelegate.isStable;
+  }
 }
 
 class ScanningPainter extends CustomPainter {
@@ -279,11 +372,6 @@ class ScanningPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final scanY = box.top + (box.height * progress);
 
-    final scanPaint = Paint()
-      ..color = Colors.white.withOpacity(0.6)
-      ..strokeWidth = 3.0
-      ..style = PaintingStyle.stroke;
-
     final glowPaint = Paint()
       ..color = Colors.white.withOpacity(0.3)
       ..strokeWidth = 20.0
@@ -295,6 +383,11 @@ class ScanningPainter extends CustomPainter {
       Offset(box.right, scanY),
       glowPaint,
     );
+
+    final scanPaint = Paint()
+      ..color = Colors.white.withOpacity(0.6)
+      ..strokeWidth = 3.0
+      ..style = PaintingStyle.stroke;
 
     canvas.drawLine(
       Offset(box.left, scanY),
@@ -310,20 +403,21 @@ class ScanningPainter extends CustomPainter {
 class CornerHandlePainter extends CustomPainter {
   final Color color;
   final HandlePosition position;
+  final bool isStable;
 
-  CornerHandlePainter(this.color, this.position);
+  CornerHandlePainter(this.color, this.position, this.isStable,);
 
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.white
-      ..strokeWidth = 4.0
+      ..color = isStable ? color : Colors.white
+      ..strokeWidth = 3.0
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
 
-    final length = 25.0;
-    final offset = 10.0;
-    final radius = 8.0;
+    final length = 30.0;
+    final offset = 14.0;
+    final radius = 15.0;
 
     switch (position) {
       case HandlePosition.topLeft:
@@ -382,5 +476,7 @@ class CornerHandlePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CornerHandlePainter oldDelegate) => false;
+  bool shouldRepaint(covariant CornerHandlePainter oldDelegate) {
+    return isStable != oldDelegate.isStable;
+  }
 }

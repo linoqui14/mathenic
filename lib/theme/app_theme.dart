@@ -11,15 +11,19 @@ class AppColors {
   static const Color lightIconColor = Color(0xFF059669);
   static const Color lightDivider = Color(0xFFD1FAE5);
 
-  static const Color darkBackground = Color(0xFF0F172A);
-  static const Color darkText = Color(0xFFF1F5F9);
-  static const Color darkTextSecondary = Color(0xFF94A3B8);
-  static const Color darkBorder = Color(0xFF1E3A2E);
-  static const Color darkInputBackground = Color(0xFF1E293B);
-  static const Color darkPrimary = Color(0xFF34D399);
-  static const Color darkSecondary = Color(0xFFF87171);
-  static const Color darkIconColor = Color(0xFF34D399);
-  static const Color darkDivider = Color(0xFF1E3A2E);
+  static const Color darkBackground = Color(0xFF080808);
+  static const Color darkSurface = Color(0xFF121212);
+  static const Color darkSurfaceVariant = Color(0xFF1A1A1A);
+  static const Color darkText = Color(0xFFE8E8E8);
+  static const Color darkTextSecondary = Color(0xFFA8A8A8);
+  static const Color darkBorder = Color(0xFF1A1A1A);
+  static const Color darkInputBackground = Color(0xFF121212);
+  static const Color darkPrimary = Color(0xFFE0E0E0);
+  static const Color darkPrimaryVariant = Color(0xFFB0B0B0);
+  static const Color darkSecondary = Color(0xFF808080);
+  static const Color darkIconColor = Color(0xFFE0E0E0);
+  static const Color darkDivider = Color(0xFF1A1A1A);
+  static const Color darkError = Color(0xFFCF6679);
 }
 
 class AppTheme {
@@ -27,6 +31,12 @@ class AppTheme {
     brightness: Brightness.light,
     scaffoldBackgroundColor: AppColors.lightBackground,
     primaryColor: AppColors.lightPrimary,
+    fontFamily: 'Roboto',
+    textTheme: const TextTheme(
+      labelLarge: TextStyle(
+        fontSize: 12,
+      ),
+    ),
     colorScheme: const ColorScheme.light(
       primary: AppColors.lightPrimary,
       secondary: AppColors.lightSecondary,
@@ -53,6 +63,12 @@ class AppTheme {
     brightness: Brightness.dark,
     scaffoldBackgroundColor: AppColors.darkBackground,
     primaryColor: AppColors.darkPrimary,
+    fontFamily: 'Inter',
+    textTheme: const TextTheme(
+      labelLarge: TextStyle(
+        fontSize: 12,
+      ),
+    ),
     colorScheme: const ColorScheme.dark(
       primary: AppColors.darkPrimary,
       secondary: AppColors.darkSecondary,

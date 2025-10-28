@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
+import 'package:flutter/rendering.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:provider/provider.dart';
@@ -11,17 +13,12 @@ import '../models/enums/capture_mode.dart';
 import '../models/math_result.dart';
 import '../providers/result_provider.dart';
 import '../services/image_processor.dart';
-import '../services/shape_detector.dart';
 import '../theme/app_theme.dart';
-import '../widgets/AnimatedBoxOverlay.dart';
-import '../widgets/CustomPainter/CenterFramePainter.dart';
+import '../widgets/CustomPainter/center_frame_painter.dart';
+import '../widgets/animated_box_overlay.dart';
 import '../widgets/draggable_resizable_box.dart';
 import '../widgets/subject_selection_sheet.dart';
 import 'dart:ui' as ui;
-import '../services/ai_service.dart';
-import '../models/math_result.dart';
-import '../providers/result_provider.dart';
-import 'dart:math' as math;
 class CameraPage extends StatefulWidget {
   const CameraPage({super.key, this.onNavigateToTab});
   final Function(int)? onNavigateToTab;
@@ -54,14 +51,15 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
   Rect? _lastDetectedBox;
   int _stableFrameCount = 0;
   static const int _requiredStableFrames = 3; // Number of stable frames needed
-  static const double _stabilityThreshold = 10.0; // Pixels tolerance
+  static const double _stabilityThreshold = 20.0; // Pixels tolerance
   bool _showConfirmation = false;
   bool _isScanning = false;
   final double _centerFrameWidthRatio = 0.85; // 85% of screen width
   final double _centerFrameHeightRatio = 0.3; // 30% of screen height
   Rect? _centerFrame;
   bool _isFlashOn = false;
-  List<DetectedShape> _detectedShapes = [];
+  FlashMode _flashMode = FlashMode.off;
+
   CaptureMode _captureMode = CaptureMode.automatic;
   bool isPressedCapture = false;
   @override
@@ -78,6 +76,18 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
     );
 
     _initializeCamera();
+
+    // Initialize center frame after first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final size = MediaQuery.of(context).size;
+      setState(() {
+        _centerFrame = Rect.fromCenter(
+          center: Offset(size.width / 2, size.height / 2),
+          width: size.width * _centerFrameWidthRatio,
+          height: size.height * _centerFrameHeightRatio,
+        );
+      });
+    });
   }
   @override
   void dispose() {
@@ -125,79 +135,215 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final primaryColor = isDark ? AppColors.darkPrimary : AppColors.lightPrimary;
-
     return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          if (_showSnapshot && _snapshotBytes != null && _snapshotBox != null)
-            Stack(
-              fit: StackFit.expand,
-              children: [
-                Image.memory(
-                  _snapshotBytes!,
-                  fit: BoxFit.cover,
-                ),
-                DraggableResizableBox(
-                  initialBox: _snapshotBox!,
-                  color: primaryColor,
-                  isScanning: _isScanning,
-                  onBoxChanged: (newBox) {
-                    setState(() {
-                      _snapshotBox = newBox;
-                    });
-                  },
-                ),
-              ],
-            )
-          else if (_isCameraInitialized && _cameraController != null)
-            SizedBox.expand(
-              child: FittedBox(
-                fit: BoxFit.cover,
-                child: SizedBox(
-                  width: _cameraController!.value.previewSize!.height,
-                  height: _cameraController!.value.previewSize!.width,
-                  child: CameraPreview(_cameraController!),
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      body: SafeArea(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.all(Radius.circular(30)),
+                child: Stack(
+                  children: [
+                    if (_showSnapshot && _snapshotBytes != null && _snapshotBox != null)
+                      Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          Image.memory(
+                            _snapshotBytes!,
+                            fit: BoxFit.cover,
+                          ),
+                          DraggableResizableBox(
+                            initialBox: _snapshotBox!,
+                            color: primaryColor,
+                            isScanning: _isScanning,
+                            onBoxChanged: (newBox) {
+                              print("Box Updated: $newBox");
+                              setState(() {
+                                _snapshotBox = newBox;
+                              });
+                            },
+                            onStable: (box){
+                              _confirmCapture();
+                            },
+                          ),
+                        ],
+                      )
+                    else if (_isCameraInitialized && _cameraController != null)
+                      SizedBox.expand(
+                        child: OverflowBox(
+                          maxHeight:MediaQuery.of(context).size.height-150,
+                          alignment: Alignment.center,
+                          fit: OverflowBoxFit.max,
+                          child: CameraPreview(_cameraController!),
+                        ),
+                      )
+                    else
+                      Center(
+                        child: CircularProgressIndicator(color: primaryColor),
+                      ),
+                    if (!_showSnapshot && _targetBox != null )
+                      AnimatedBoxOverlay(
+                        targetBox: _targetBox!,
+                        currentBox: _animatedBox,
+                        onBoxUpdate: (box) {
+
+                          setState(() {
+                            _animatedBox = box;
+                          });
+                        },
+                        color: primaryColor,
+                        pulseAnimation: _pulseAnimation,
+                      ),
+                    !_showConfirmation ? Container(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white.withOpacity(0.15),
+                              border: Border.all(
+                                color: Colors.white.withOpacity(0.3),
+                                width: 2,
+                              ),
+                            ),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: _flipCamera,
+                                borderRadius: BorderRadius.circular(24),
+                                child: const Center(
+                                  child: FaIcon(
+                                    FontAwesomeIcons.arrowRotateLeft,
+                                    color: Colors.white,
+                                    size: 24,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          // Mode toggle button
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(
+                                color: Colors.white.withOpacity(0.3),
+                                width: 2,
+                              ),
+                            ),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () {
+                                  final newMode = _captureMode == CaptureMode.automatic
+                                      ? CaptureMode.manual
+                                      : CaptureMode.automatic;
+
+                                  setState(() {
+                                    _captureMode = newMode;
+
+                                    // Clear annotations immediately when switching to manual mode
+                                    if (newMode == CaptureMode.manual) {
+                                      _targetBox = null;
+                                      _animatedBox = null;
+                                      _stableFrameCount = 0;
+                                      _lastDetectedBox = null;
+                                      _stabilityStartTime = null;
+                                      _detectionTimer?.cancel();
+                                      _detectionTimer = null;
+                                    }
+                                  });
+                                },
+                                borderRadius: BorderRadius.circular(24),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      _captureMode == CaptureMode.automatic
+                                          ? Icons.auto_awesome
+                                          : Icons.touch_app,
+                                      color: Colors.white,
+                                      size: 20,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      _captureMode == CaptureMode.automatic ? 'Auto' : 'Manual',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ) : const SizedBox.shrink(),
+                    if(!_showSnapshot && _snapshotBytes == null && _snapshotBox == null)
+                    Positioned(
+                      bottom: 10,
+                      left: MediaQuery.of(context).size.width / 2 - 20,
+
+                      child: Center(
+                        child: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: _flashMode != FlashMode.off
+                                ? Colors.amber.withOpacity(0.3)
+                                : Colors.white.withOpacity(0.15),
+                            border: Border.all(
+                              color: _flashMode != FlashMode.off
+                                  ? Colors.amber
+                                  : Colors.white.withOpacity(0.3),
+                              width: 2,
+                            ),
+                          ),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              onTap: _toggleFlash,
+                              borderRadius: BorderRadius.circular(28),
+                              child: Center(
+                                child: FaIcon(
+                                  _flashMode == FlashMode.torch
+                                      ? Icons.flash_on
+                                      : _flashMode == FlashMode.auto
+                                      ? Icons.flash_auto
+                                      : Icons.flash_off,
+                                  color: _flashMode != FlashMode.off ? Colors.amber : Colors.white,
+                                  size: 20,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            )
-          else
-            Center(
-              child: CircularProgressIndicator(color: primaryColor),
             ),
-
-          if (!_showSnapshot && _targetBox != null && _captureMode == CaptureMode.automatic)
-            AnimatedBoxOverlay(
-              targetBox: _targetBox!,
-              currentBox: _animatedBox,
-              onBoxUpdate: (box) {
-                setState(() {
-                  _animatedBox = box;
-                });
-              },
-              color: primaryColor,
-              pulseAnimation: _pulseAnimation,
-            ),
-          if (!_showSnapshot && _centerFrame != null)
-            Positioned.fill(
-              child: CustomPaint(
-                painter: CenterFramePainter(_centerFrame!, primaryColor),
-              ),
-            ),
-
-          Positioned(
-            top: 60,
-            left: 0,
-            right: 0,
-            child: !_showConfirmation ? Container(
-              padding: const EdgeInsets.all(16),
+            Container(
+              padding: const EdgeInsets.only(bottom: 40, top: 20),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
+                  if (!_showSnapshot && _snapshotBytes == null && _snapshotBox == null)
                   Container(
-                    width: 48,
-                    height: 48,
+                    width: 50,
+                    height: 50,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: Colors.white.withOpacity(0.15),
@@ -209,24 +355,67 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
                     child: Material(
                       color: Colors.transparent,
                       child: InkWell(
-                        onTap: _flipCamera,
-                        borderRadius: BorderRadius.circular(24),
+                        onTap: _pickFromGallery,
+                        borderRadius: BorderRadius.circular(32),
                         child: const Center(
-                          child: Icon(
-                            Icons.flip_camera_ios_outlined,
+                          child: FaIcon(
+                            FontAwesomeIcons.image,
                             color: Colors.white,
-                            size: 24,
+                            size: 25,
                           ),
                         ),
                       ),
                     ),
                   ),
-                  // Mode toggle button
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Container(
+                        width: 100,
+                        height: 100,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Colors.white,
+                            width: 3,
+                          ),
+                        ),
+                      ),
+                      InkWell(
+                        onTap: () async {
+                          if(!_showSnapshot && _snapshotBytes == null && _snapshotBox == null){
+                            _manualCapture();
+                            return;
+                          }
+                          await _initializeCamera();
+                          _resetCapture();
+                        },
+                        borderRadius: BorderRadius.circular(40),
+                        child: Container(
+                          width: 78,
+                          height: 78,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.cyan,
+                          ),
+                          child: (_showSnapshot && _snapshotBytes != null && _snapshotBox != null) ? Center(
+                            child: FaIcon(
+                              FontAwesomeIcons.arrowRotateRight,
+                              color: Colors.white,
+                              size: 30,
+                            ),
+                          ) : const SizedBox.shrink(),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (!_showSnapshot && _snapshotBytes == null && _snapshotBox == null)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    width: 50,
+                    height: 50,
                     decoration: BoxDecoration(
+                      shape: BoxShape.circle,
                       color: Colors.white.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(24),
                       border: Border.all(
                         color: Colors.white.withOpacity(0.3),
                         width: 2,
@@ -235,242 +424,187 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
                     child: Material(
                       color: Colors.transparent,
                       child: InkWell(
-                        onTap: () {
-                          final newMode = _captureMode == CaptureMode.automatic
-                              ? CaptureMode.manual
-                              : CaptureMode.automatic;
-
-                          setState(() {
-                            _captureMode = newMode;
-
-                            // Clear annotations immediately when switching to manual mode
-                            if (newMode == CaptureMode.manual) {
-                              _targetBox = null;
-                              _animatedBox = null;
-                              _stableFrameCount = 0;
-                              _lastDetectedBox = null;
-                              _stabilityStartTime = null;
-                              _detectionTimer?.cancel();
-                              _detectionTimer = null;
-                            }
-                          });
-                        },
-                        borderRadius: BorderRadius.circular(24),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              _captureMode == CaptureMode.automatic
-                                  ? Icons.auto_awesome
-                                  : Icons.touch_app,
-                              color: Colors.white,
-                              size: 20,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              _captureMode == CaptureMode.automatic ? 'Auto' : 'Manual',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ],
+                        onTap: _pickFromGallery,
+                        borderRadius: BorderRadius.circular(32),
+                        child: const Center(
+                          child: FaIcon(
+                            FontAwesomeIcons.microphoneLines,
+                            color: Colors.white,
+                            size: 25,
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ],
               ),
-            ) : const SizedBox.shrink(),
-          ),
-
-
-          // Bottom navigation (hide when snapshot is shown)
-          if (!_showSnapshot)
-            Positioned(
-              bottom: 80,
-              left: 0,
-              right: 0,
-              child: Container(
-                padding: const EdgeInsets.only(bottom: 40, top: 20),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    Container(
-                      width: 50,
-                      height: 50,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.white.withOpacity(0.15),
-                        border: Border.all(
-                          color: Colors.white.withOpacity(0.3),
-                          width: 2,
-                        ),
-                      ),
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          onTap: _pickFromGallery,
-                          borderRadius: BorderRadius.circular(32),
-                          child: const Center(
-                            child: Icon(
-                              Icons.photo_library_outlined,
-                              color: Colors.white,
-                              size: 25,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    Container(
-                      width: 65,
-                      height: 65,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Colors.white,
-                          width: 4,
-                        ),
-                        color: primaryColor,
-                      ),
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          onTap: _manualCapture,
-                          borderRadius: BorderRadius.circular(40),
-                          child: const Center(
-                            child: Icon(
-                              Icons.camera_alt,
-                              color: Colors.white,
-                              size: 25,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    Center(
-                      child: Container(
-                        width: 50,
-                        height: 50,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: _isFlashOn
-                              ? Colors.amber.withOpacity(0.3)
-                              : Colors.white.withOpacity(0.15),
-                          border: Border.all(
-                            color: _isFlashOn
-                                ? Colors.amber
-                                : Colors.white.withOpacity(0.3),
-                            width: 2,
-                          ),
-                        ),
-                        child: Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: _toggleFlash,
-                            borderRadius: BorderRadius.circular(28),
-                            child: Center(
-                              child: Icon(
-                                _isFlashOn ? Icons.flash_on : Icons.flash_off,
-                                color: _isFlashOn ? Colors.amber : Colors.white,
-                                size: 25,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
             ),
-          if (_showSnapshot && _showConfirmation)
-            Positioned(
-              bottom: 70,
-              left: 0,
-              right: 0,
-              child: Container(
-                padding: const EdgeInsets.only(bottom: 40, top: 20),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.bottomCenter,
-                    end: Alignment.topCenter,
-                    colors: [
-                      Colors.black.withOpacity(0.8),
-                      Colors.transparent,
-                    ],
-                  ),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    // Reset button
-                    Container(
-                      width: 64,
-                      height: 64,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.white.withOpacity(0.15),
-                        border: Border.all(
-                          color: Colors.white.withOpacity(0.3),
-                          width: 2,
-                        ),
-                      ),
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          onTap: _resetCapture,
-                          borderRadius: BorderRadius.circular(32),
-                          child: const Center(
-                            child: Icon(
-                              Icons.refresh,
-                              color: Colors.white,
-                              size: 28,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    // Confirm button
-                    Container(
-                      width: 80,
-                      height: 80,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Colors.white,
-                          width: 4,
-                        ),
-                        color: primaryColor,
-                      ),
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          onTap: _confirmCapture,
-                          borderRadius: BorderRadius.circular(40),
-                          child: const Center(
-                            child: Icon(
-                              Icons.check,
-                              color: Colors.white,
-                              size: 40,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    // Placeholder for symmetry
-                    const SizedBox(
-                      width: 64,
-                      height: 64,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
+    // return Scaffold(
+    //   backgroundColor: Colors.black,
+    //   body: Stack(
+    //     fit: StackFit.expand,
+    //     children: [
+    //       if (_showSnapshot && _snapshotBytes != null && _snapshotBox != null)
+    //         Stack(
+    //           fit: StackFit.expand,
+    //           children: [
+    //             Image.memory(
+    //               _snapshotBytes!,
+    //               fit: BoxFit.cover,
+    //             ),
+    //             DraggableResizableBox(
+    //               initialBox: _snapshotBox!,
+    //               color: primaryColor,
+    //               isScanning: _isScanning,
+    //               onBoxChanged: (newBox) {
+    //                 setState(() {
+    //                   _snapshotBox = newBox;
+    //                 });
+    //               },
+    //             ),
+    //           ],
+    //         )
+    //       else if (_isCameraInitialized && _cameraController != null)
+    //         SizedBox.expand(
+    //           child: FittedBox(
+    //             fit: BoxFit.cover,
+    //             child: SizedBox(
+    //               width: _cameraController!.value.previewSize!.height,
+    //               height: _cameraController!.value.previewSize!.width,
+    //               child: CameraPreview(_cameraController!),
+    //             ),
+    //           ),
+    //         )
+    //       else
+    //         Center(
+    //           child: CircularProgressIndicator(color: primaryColor),
+    //         ),
+    //       if (!_showSnapshot && _targetBox != null && _captureMode == CaptureMode.automatic)
+    //         AnimatedBoxOverlay(
+    //           targetBox: _targetBox!,
+    //           currentBox: _animatedBox,
+    //           onBoxUpdate: (box) {
+    //             setState(() {
+    //               _animatedBox = box;
+    //             });
+    //           },
+    //           color: primaryColor,
+    //           pulseAnimation: _pulseAnimation,
+    //         ),
+    //       if (!_showSnapshot && _centerFrame != null)
+    //         Positioned.fill(
+    //           child: CustomPaint(
+    //             painter: CenterFramePainter(_centerFrame!, primaryColor),
+    //           ),
+    //         ),
+    //
+    //       // Bottom navigation (hide when snapshot is shown)
+    //       if (!_showSnapshot)
+    //         Positioned(
+    //           bottom: 80,
+    //           left: 0,
+    //           right: 0,
+    //           child: Container(
+    //             padding: const EdgeInsets.only(bottom: 40, top: 20),
+    //             child: Row(
+    //               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+    //               children: [
+    //                 Container(
+    //                   width: 50,
+    //                   height: 50,
+    //                   decoration: BoxDecoration(
+    //                     shape: BoxShape.circle,
+    //                     color: Colors.white.withOpacity(0.15),
+    //                     border: Border.all(
+    //                       color: Colors.white.withOpacity(0.3),
+    //                       width: 2,
+    //                     ),
+    //                   ),
+    //                   child: Material(
+    //                     color: Colors.transparent,
+    //                     child: InkWell(
+    //                       onTap: _pickFromGallery,
+    //                       borderRadius: BorderRadius.circular(32),
+    //                       child: const Center(
+    //                         child: Icon(
+    //                           Icons.photo_library_outlined,
+    //                           color: Colors.white,
+    //                           size: 25,
+    //                         ),
+    //                       ),
+    //                     ),
+    //                   ),
+    //                 ),
+    //                 Container(
+    //                   width: 65,
+    //                   height: 65,
+    //                   decoration: BoxDecoration(
+    //                     shape: BoxShape.circle,
+    //                     border: Border.all(
+    //                       color: Colors.white,
+    //                       width: 4,
+    //                     ),
+    //                     color: primaryColor,
+    //                   ),
+    //                   child: Material(
+    //                     color: Colors.transparent,
+    //                     child: InkWell(
+    //                       onTap: _manualCapture,
+    //                       borderRadius: BorderRadius.circular(40),
+    //                       child: const Center(
+    //                         child: Icon(
+    //                           Icons.camera_alt,
+    //                           color: Colors.white,
+    //                           size: 25,
+    //                         ),
+    //                       ),
+    //                     ),
+    //                   ),
+    //                 ),
+    //                 Center(
+    //                   child: Container(
+    //                     width: 50,
+    //                     height: 50,
+    //                     decoration: BoxDecoration(
+    //                       shape: BoxShape.circle,
+    //                       color: _isFlashOn
+    //                           ? Colors.amber.withOpacity(0.3)
+    //                           : Colors.white.withOpacity(0.15),
+    //                       border: Border.all(
+    //                         color: _isFlashOn
+    //                             ? Colors.amber
+    //                             : Colors.white.withOpacity(0.3),
+    //                         width: 2,
+    //                       ),
+    //                     ),
+    //                     child: Material(
+    //                       color: Colors.transparent,
+    //                       child: InkWell(
+    //                         onTap: _toggleFlash,
+    //                         borderRadius: BorderRadius.circular(28),
+    //                         child: Center(
+    //                           child: Icon(
+    //                             _isFlashOn ? Icons.flash_on : Icons.flash_off,
+    //                             color: _isFlashOn ? Colors.amber : Colors.white,
+    //                             size: 25,
+    //                           ),
+    //                         ),
+    //                       ),
+    //                     ),
+    //                   ),
+    //                 ),
+    //               ],
+    //             ),
+    //           ),
+    //         ),
+    //
+    //     ],
+    //   ),
+    // );
   }
 
   bool _isBoxStable(Rect newBox) {
@@ -494,17 +628,24 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
     }
 
     try {
-      final newFlashMode = _isFlashOn ? FlashMode.off : FlashMode.torch;
-      await _cameraController!.setFlashMode(newFlashMode);
+      // Cycle through: off → on → auto
+      FlashMode newMode;
+      if (_flashMode == FlashMode.off) {
+        newMode = FlashMode.torch;
+      } else if (_flashMode == FlashMode.torch) {
+        newMode = FlashMode.auto;
+      } else {
+        newMode = FlashMode.off;
+      }
+
+      await _cameraController!.setFlashMode(newMode);
 
       setState(() {
-        _isFlashOn = !_isFlashOn;
+        _flashMode = newMode;
+        _isFlashOn = newMode != FlashMode.off;
       });
     } catch (e) {
       debugPrint('Error toggling flash: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Flash not available on this device')),
-      );
     }
   }
 
@@ -605,7 +746,7 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
         );
 
         resultProvider.setResultWithoutSaving(tempResult);
-        widget.onNavigateToTab?.call(1);
+        widget.onNavigateToTab?.call(0);
 
         await ImageProcessor.processImageWithLazyLoading(
           base64Encode(croppedImageBytes),
@@ -619,7 +760,7 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
       }).whenComplete(() {
         if (!mounted) return;
         setState(() {
-          _showConfirmation = true;
+          _showConfirmation = false;
         });
       });
     } catch (e) {
@@ -637,59 +778,64 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
   }
 
   Future<void> _flipCamera() async {
-    if (_cameras == null || _cameras!.length < 2) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No other camera available')),
-      );
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
       return;
     }
 
     try {
-      await _cameraController?.stopImageStream();
-      await _cameraController?.dispose();
+      // Stop image stream BEFORE disposing
+      if (_cameraController!.value.isStreamingImages) {
+        await _cameraController!.stopImageStream();
+      }
+      await Future.delayed(Duration(milliseconds: 80));
+      // Cancel detection timer
+      _detectionTimer?.cancel();
+      _detectionTimer = null;
 
-      final currentCameraIndex = _cameras!.indexOf(_cameraController!.description);
-      final newCameraIndex = (currentCameraIndex + 1) % _cameras!.length;
-
-      _cameraController = CameraController(
-        _cameras![0],
-        ResolutionPreset.high,
-        enableAudio: false,  // This disables shutter sound
-        imageFormatGroup: ImageFormatGroup.yuv420,
+      // Get the next camera
+      final cameras = await availableCameras();
+      final currentIndex = cameras.indexWhere((camera) =>
+      camera.lensDirection == _cameraController!.description.lensDirection
       );
 
-      await _cameraController!.initialize();
+      final nextCamera = cameras[currentIndex == 0 ? 1 : 0];
 
-      if (mounted) {
-        setState(() {
-          _isCameraInitialized = true;
-        });
-        _cameraController!.startImageStream(_processCameraImage);
-      }
+      // Dispose current controller
+      await _cameraController!.dispose();
+      _cameraController = null;
+
+      // Reset state
+      setState(() {
+        _isCameraInitialized = false;
+        _targetBox = null;
+        _animatedBox = null;
+        _stableFrameCount = 0;
+        _lastDetectedBox = null;
+      });
+
+      // Initialize new camera
+      await _initializeCamera(nextCamera);
     } catch (e) {
-      debugPrint('Error flipping camera: $e');
+      if (mounted) {
+        debugPrint('Error flipping camera: $e');
+      }
     }
   }
 
-  Future<void> _initializeCamera() async {
-    final cameras = await availableCameras();
-    final camera = cameras.first;
-
-    _cameraController = CameraController(
-      camera,
-      ResolutionPreset.high,
-      enableAudio: false,
-    );
-
+  Future<void> _initializeCamera([CameraDescription? camera]) async {
     try {
       _cameras = await availableCameras();
       if (_cameras != null && _cameras!.isNotEmpty) {
+        // Use provided camera or default to first one
+        final selectedCamera = camera ?? _cameras![0];
+
         _cameraController = CameraController(
-          _cameras![0],
+          selectedCamera,
           ResolutionPreset.high,
           enableAudio: false,
           imageFormatGroup: ImageFormatGroup.yuv420,
         );
+
         await _cameraController!.initialize();
 
         if (mounted) {
@@ -723,15 +869,6 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
     _lastProcessTime = now;
 
     try {
-      final size = MediaQuery.of(context).size;
-
-      final frameWidth = size.width * _centerFrameWidthRatio;
-      final frameHeight = size.height * _centerFrameHeightRatio;
-      final frameLeft = (size.width - frameWidth) / 2;
-      final frameTop = (size.height - frameHeight) / 2;
-
-      _centerFrame = Rect.fromLTWH(frameLeft, frameTop, frameWidth, frameHeight);
-
       final WriteBuffer allBytes = WriteBuffer();
       for (final Plane plane in image.planes) {
         allBytes.putUint8List(plane.bytes);
@@ -754,11 +891,15 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
       int maxTextLength = 3;
 
       for (TextBlock block in recognizedText.blocks) {
-        final scaledBox = _scaleRect(block.boundingBox, image.width.toDouble(), image.height.toDouble(),);
+        final scaledBox = _scaleRect(
+          block.boundingBox,
+          image.width.toDouble(),
+          image.height.toDouble(),
+        );
 
-        if (_isBoxInCenterFrame(scaledBox) &&
-            _containsMathContent(block.text) &&
+        if (_containsMathContent(block.text) &&
             block.text.length > maxTextLength) {
+
           maxTextLength = block.text.length;
           largestBox = scaledBox;
         }
@@ -796,9 +937,9 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
           });
 
           if (_stableFrameCount >= _requiredStableFrames) {
-            _detectionTimer?.cancel();
+            // _detectionTimer?.cancel();
             debugPrint('Box stable - capturing snapshot');
-            if(_captureMode == CaptureMode.automatic || isPressedCapture){
+            if (_captureMode == CaptureMode.automatic || isPressedCapture) {
               await _captureSnapshot(image, largestBox);
               _stableFrameCount = 0;
               _lastDetectedBox = null;
@@ -806,9 +947,8 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
             }
           }
         }
-      }
-      else {
-        if(isPressedCapture){
+      } else {
+        if (isPressedCapture) {
           Navigator.pop(context);
           isPressedCapture = false;
         }
@@ -826,6 +966,7 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
       _isProcessing = false;
     }
   }
+
   Future<void> _pickFromGallery() async {
     // Show loading dialog
     if (mounted) {
@@ -932,6 +1073,7 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
       }
     }
   }
+
   void _showLoadingDialog({String message =  'Loading image...'}) {
     showDialog(
       context: context,
@@ -991,41 +1133,37 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
       final previewHeight = previewSize.width;
 
       final screenSize = MediaQuery.of(context).size;
+      final bottomOffset = 280.0; // Match _scaleRect value
+      final availableHeight = screenSize.height - bottomOffset;
 
       final previewAspect = previewWidth / previewHeight;
-      final screenAspect = screenSize.width / screenSize.height;
+      final containerAspect = screenSize.width / availableHeight;
 
       double displayWidth, displayHeight;
-      if (previewAspect > screenAspect) {
+      double offsetX = 0, offsetY = 0;
+
+      if (previewAspect > containerAspect) {
         displayWidth = screenSize.width;
         displayHeight = screenSize.width / previewAspect;
+        offsetY = (displayHeight - availableHeight) / 2;
       } else {
-        displayHeight = screenSize.height;
-        displayWidth = screenSize.height * previewAspect;
+        displayHeight = availableHeight;
+        displayWidth = availableHeight * previewAspect;
+        offsetX = (displayWidth - screenSize.width) / 2;
       }
 
-      final offsetX = (screenSize.width - displayWidth) / 2;
-      final offsetY = (screenSize.height - displayHeight) / 2;
-
       final normalizedBox = Rect.fromLTRB(
-        (detectedBox.left - offsetX) / displayWidth,
-        (detectedBox.top - offsetY) / displayHeight,
-        (detectedBox.right - offsetX) / displayWidth,
-        (detectedBox.bottom - offsetY) / displayHeight,
-      );
-
-      final scaledBox = Rect.fromLTRB(
-        normalizedBox.left * capturedWidth,
-        normalizedBox.top * capturedHeight,
-        normalizedBox.right * capturedWidth,
-        normalizedBox.bottom * capturedHeight,
+        (detectedBox.left + offsetX) / displayWidth,
+        (detectedBox.top + offsetY) / displayHeight,
+        (detectedBox.right + offsetX) / displayWidth,
+        (detectedBox.bottom + offsetY) / displayHeight,
       );
 
       final displayBox = Rect.fromLTRB(
-        normalizedBox.left * screenSize.width,
-        normalizedBox.top * screenSize.height,
-        normalizedBox.right * screenSize.width,
-        normalizedBox.bottom * screenSize.height,
+        (normalizedBox.left * displayWidth) - offsetX,
+        (normalizedBox.top * displayHeight) - offsetY,
+        (normalizedBox.right * displayWidth) - offsetX,
+        (normalizedBox.bottom * displayHeight) - offsetY,
       );
 
       setState(() {
@@ -1035,8 +1173,10 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
         _snapshotBox = displayBox;
         _showSnapshot = true;
         _isSheetVisible = false;
-        _isScanning = false; // Set to false immediately
-        _showConfirmation = true; // Show confirmation immediately
+        _isScanning = false;
+        _showConfirmation = true;
+        _cameraController?.dispose();
+        _confirmCapture();
         if(isPressedCapture){
           Navigator.pop(context);
           isPressedCapture = false;
@@ -1055,8 +1195,6 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
     });
   }
 
-
-
   void _resetCamera() {
     setState(() {
       _showSnapshot = false;
@@ -1065,12 +1203,12 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
       _animatedBox = null;
       _snapshotBytes = null;
       _snapshotBox = null;
+      _flashMode = FlashMode.off;
       _isFlashOn = false;
       _stableFrameCount = 0;
       _lastDetectedBox = null;
       _stabilityStartTime = null;
       _showConfirmation = false;
-      _detectedShapes = [];
     });
     _cameraController?.setFlashMode(FlashMode.off);
     _cameraController?.startImageStream(_processCameraImage);
@@ -1079,33 +1217,93 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
   Rect _scaleRect(Rect rect, double width, double height) {
     final size = MediaQuery.of(context).size;
 
-    // Swap width/height due to rotation
+    // Account for bottom navigation bar (65px height from NavigationBar)
+    final bottomNavHeight = 280.0;
+    final availableHeight = size.height - bottomNavHeight;
+
+    // Camera preview dimensions (swapped due to rotation)
     final imageWidth = width;
     final imageHeight = height;
 
-    final scaleX = size.width / imageWidth;
-    final scaleY = size.height / imageHeight;
+    // Calculate preview aspect ratio
+    final previewAspect = imageHeight / imageWidth;
 
+    // Calculate container aspect ratio using available height
+    final containerAspect = size.width / availableHeight;
+
+    double displayWidth, displayHeight;
+    double offsetX = 0, offsetY = 0;
+
+    if (previewAspect > containerAspect) {
+      // Preview is taller - width matches container, height overflows
+      displayWidth = size.width;
+      displayHeight = size.width / previewAspect;
+      offsetY = (displayHeight - availableHeight) / 2;
+    } else {
+      // Preview is wider - height matches container, width overflows
+      displayHeight = availableHeight;
+      displayWidth = availableHeight * previewAspect;
+      offsetX = (displayWidth - size.width) / 2;
+    }
+
+    // Calculate scaling factors
+    final scaleX = displayWidth / imageWidth;
+    final scaleY = displayHeight / imageHeight;
+
+    // Scale and adjust for any overflow offset
     return Rect.fromLTRB(
-      rect.left * scaleX,
-      rect.top * scaleY,
-      rect.right * scaleX,
-      rect.bottom * scaleY,
+      (rect.left * scaleX) - offsetX,
+      (rect.top * scaleY) - offsetY,
+      (rect.right * scaleX) - offsetX,
+      (rect.bottom * scaleY) - offsetY,
     );
   }
 
   bool _containsMathContent(String text) {
-    final mathPattern = RegExp(r'[\d+\-*/=()∫∑√^%x²³αβγπ]|[0-9]+|sin|cos|tan|log|ln|lim|∞');
-    return mathPattern.hasMatch(text) && text.trim().length > 2;
-  }
+    final cleanText = text.trim().toLowerCase();
+    if (cleanText.length < 2) return false;
 
-  void _navigateToProfile() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Navigate to profile')),
+    // Question keywords that indicate a problem or task
+    final questionKeywords = RegExp(
+      r'\b(find|solve|calculate|compute|determine|evaluate|simplify|prove|show|verify|'
+      r'what|when|where|how|why|which|if|given|let|suppose|assume|consider|'
+      r'express|write|graph|draw|sketch|plot|derive|obtain|state|'
+      r'expand|factor|reduce|convert|transform|identify|explain|analyze|'
+      r'compare|describe|illustrate|demonstrate|justify|classify|estimate)\b',
+      caseSensitive: false,
     );
+
+    // Mathematical expressions
+    final mathPattern = RegExp(
+      r'(\d+\.?\d*\s*[+\-×÷*/=^]\s*\d+\.?\d*)|'  // Operations with numbers
+      r'([xyz]\s*[+\-×÷*/=^])|'                    // Variables with operators
+      r'(\d+[xyz])|'                               // Coefficients (2x, 3y)
+      r'([xyz]\d+)|'                               // Variable with exponent
+      r'(sqrt|sin|cos|tan|log|ln|lim|∫|∑|∞|π|α|β|γ)',  // Functions and symbols
+      caseSensitive: false,
+    );
+
+    // Additional math indicators
+    final hasOperator = RegExp(r'[+\-×÷*/=^]').hasMatch(cleanText);
+    final hasFraction = RegExp(r'\d+/\d+').hasMatch(cleanText);
+    final hasEquation = RegExp(r'[a-z0-9]\s*=\s*[a-z0-9]', caseSensitive: false).hasMatch(cleanText);
+    final numberCount = RegExp(r'\d+').allMatches(cleanText).length;
+
+    // Check for units (cm, m, kg, etc.)
+    final hasUnits = RegExp(r'\d+\s*(cm|m|km|mm|kg|g|mg|l|ml|°|rad|°c|°f)', caseSensitive: false).hasMatch(cleanText);
+
+    // Return true if text contains:
+    // 1. Question keywords + numbers OR
+    // 2. Math patterns OR
+    // 3. Operators with sufficient numbers OR
+    // 4. Fractions/equations OR
+    // 5. Question keywords + units
+    return (questionKeywords.hasMatch(cleanText) && (numberCount >= 1 || hasUnits)) ||
+        mathPattern.hasMatch(cleanText) ||
+        (hasOperator && numberCount >= 2) ||
+        hasFraction ||
+        hasEquation;
   }
-
-
 
 }
 

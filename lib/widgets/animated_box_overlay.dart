@@ -1,6 +1,6 @@
 import 'package:flutter/cupertino.dart';
 
-import 'CustomPainter/AnimatedBoxPainter.dart';
+import 'CustomPainter/animated_box_painter.dart';
 
 class AnimatedBoxOverlay extends StatefulWidget {
   final Rect targetBox;
@@ -30,7 +30,7 @@ class _AnimatedBoxOverlayState extends State<AnimatedBoxOverlay> with SingleTick
   void initState() {
     super.initState();
     _moveController = AnimationController(
-      duration: const Duration(milliseconds: 300),
+      duration: const Duration(milliseconds: 200),
       vsync: this,
     );
 
