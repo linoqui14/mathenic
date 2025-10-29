@@ -128,6 +128,7 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
 
   @override
   Widget build(BuildContext context) {
+    print(!_showSnapshot && _captureMode == CaptureMode.automatic && _cameraController != null);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final primaryColor = isDark ? AppColors.darkPrimary : AppColors.lightPrimary;
     return Scaffold(
@@ -176,7 +177,7 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
                         cameraController: _cameraController!,
                         pulseAnimation: _pulseAnimation,
                         color: primaryColor,
-                        isEnabled: !_isSheetVisible && !_showSnapshot,
+                        isEnabled: true,
                         onStableDetection: (image, box) async {
                           if (isPressedCapture) {
                             await _captureSnapshot(image, box);
@@ -629,27 +630,27 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
     }
   }
 
-  Future<void> _initializeCamera() async {
+  Future<void> _initializeCamera([CameraDescription? camera]) async {
     try {
-      final cameras = await availableCameras();
-      if (cameras.isEmpty) return;
+      _cameras = await availableCameras();
+      if (_cameras != null && _cameras!.isNotEmpty) {
+        // Use provided camera or default to first one
+        final selectedCamera = camera ?? _cameras![0];
 
-      final camera = cameras.first;
+        _cameraController = CameraController(
+          selectedCamera,
+          ResolutionPreset.high,
+          enableAudio: false,
+          imageFormatGroup: ImageFormatGroup.yuv420,
+        );
 
-      _cameraController = CameraController(
-        camera,
-        ResolutionPreset.high, // or ResolutionPreset.veryHigh for even better quality
-        enableAudio: false,
-        imageFormatGroup: ImageFormatGroup.yuv420,
-      );
+        await _cameraController!.initialize();
 
-      await _cameraController!.initialize();
-      await _cameraController!.setFlashMode(FlashMode.off);
-
-      if (mounted) {
-        setState(() {
-          _isCameraInitialized = true;
-        });
+        if (mounted) {
+          setState(() {
+            _isCameraInitialized = true;
+          });
+        }
       }
     } catch (e) {
       debugPrint('Error initializing camera: $e');

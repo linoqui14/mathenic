@@ -94,7 +94,7 @@ class _AutoDetectionOverlayState extends State<AutoDetectionOverlay> {
     // Reduce from 300ms to ~33ms for 30fps processing (skip every other frame)
     // Use 16ms for true 60fps, but this may cause performance issues
     if (_lastProcessTime != null &&
-        now.difference(_lastProcessTime!).inMilliseconds < 33) {
+        now.difference(_lastProcessTime!).inMilliseconds < 200) {
       return;
     }
 

@@ -71,7 +71,6 @@ class _SnapshotEditorState extends State<SnapshotEditor> with SingleTickerProvid
 
   @override
   Widget build(BuildContext context) {
-    print(widget.isMenuVisible);
     return Stack(
       fit: StackFit.expand,
       children: [
