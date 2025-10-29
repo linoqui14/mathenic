@@ -16,7 +16,9 @@ import '../services/image_processor.dart';
 import '../theme/app_theme.dart';
 import '../widgets/CustomPainter/center_frame_painter.dart';
 import '../widgets/animated_box_overlay.dart';
+import '../widgets/auto_detection_overlay.dart';
 import '../widgets/draggable_resizable_box.dart';
+import '../widgets/snapshot_editor.dart';
 import '../widgets/subject_selection_sheet.dart';
 import 'dart:ui' as ui;
 class CameraPage extends StatefulWidget {
@@ -32,27 +34,20 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
   Uint8List? _snapshotBytes;
   Rect? _snapshotBox;
   Timer? _detectionTimer;
+  bool isMenuVisible = false;
   CameraController? _cameraController;
   List<CameraDescription>? _cameras;
   bool _isCameraInitialized = false;
   final ImagePicker _imagePicker = ImagePicker();
   final TextRecognizer _textRecognizer = TextRecognizer();
-  Rect? _targetBox;
-  Rect? _animatedBox;
-  bool _isProcessing = false;
   bool _isSheetVisible = false; // Add this flag
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
   double? _originalImageWidth;
   double? _originalImageHeight;
-  DateTime? _stabilityStartTime;
   static const int _stabilityTimeoutSeconds = 2;
-  DateTime? _lastProcessTime;
-  Rect? _lastDetectedBox;
-  int _stableFrameCount = 0;
   static const int _requiredStableFrames = 3; // Number of stable frames needed
   static const double _stabilityThreshold = 20.0; // Pixels tolerance
-  bool _showConfirmation = false;
   bool _isScanning = false;
   final double _centerFrameWidthRatio = 0.85; // 85% of screen width
   final double _centerFrameHeightRatio = 0.3; // 30% of screen height
@@ -126,7 +121,7 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
       _cameraController?.stopImageStream();
     } else if (state == AppLifecycleState.resumed) {
       if (!_showSnapshot) {
-        _cameraController?.startImageStream(_processCameraImage);
+        // _cameraController?.startImageStream(_processCameraImage);
       }
     }
   }
@@ -147,28 +142,21 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
                 child: Stack(
                   children: [
                     if (_showSnapshot && _snapshotBytes != null && _snapshotBox != null)
-                      Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          Image.memory(
-                            _snapshotBytes!,
-                            fit: BoxFit.cover,
-                          ),
-                          DraggableResizableBox(
-                            initialBox: _snapshotBox!,
-                            color: primaryColor,
-                            isScanning: _isScanning,
-                            onBoxChanged: (newBox) {
-                              print("Box Updated: $newBox");
-                              setState(() {
-                                _snapshotBox = newBox;
-                              });
-                            },
-                            onStable: (box){
-                              _confirmCapture();
-                            },
-                          ),
-                        ],
+                      SnapshotEditor(
+                        isMenuVisible: isMenuVisible,
+                        imageBytes: _snapshotBytes!,
+                        initialBox: _snapshotBox!,
+                        color: primaryColor,
+                        isScanning: _isScanning,
+                        onBoxChanged: (newBox) {
+                          print("Box Updated: $newBox");
+                          setState(() {
+                            _snapshotBox = newBox;
+                          });
+                        },
+                        onStable: (box) {
+                          _confirmCapture();
+                        },
                       )
                     else if (_isCameraInitialized && _cameraController != null)
                       SizedBox.expand(
@@ -183,20 +171,20 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
                       Center(
                         child: CircularProgressIndicator(color: primaryColor),
                       ),
-                    if (!_showSnapshot && _targetBox != null && _captureMode == CaptureMode.automatic)
-                      AnimatedBoxOverlay(
-                        targetBox: _targetBox!,
-                        currentBox: _animatedBox,
-                        onBoxUpdate: (box) {
-
-                          setState(() {
-                            _animatedBox = box;
-                          });
-                        },
-                        color: primaryColor,
+                    if (!_showSnapshot && _captureMode == CaptureMode.automatic && _cameraController != null)
+                      AutoDetectionOverlay(
+                        cameraController: _cameraController!,
                         pulseAnimation: _pulseAnimation,
+                        color: primaryColor,
+                        isEnabled: !_isSheetVisible && !_showSnapshot,
+                        onStableDetection: (image, box) async {
+                          if (isPressedCapture) {
+                            await _captureSnapshot(image, box);
+                          }
+                        },
                       ),
-                    !_showConfirmation ? Container(
+                    if (!_showSnapshot || _snapshotBytes == null && _snapshotBox != null)
+                      Container(
                       padding: const EdgeInsets.all(16),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -251,11 +239,6 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
 
                                     // Clear annotations immediately when switching to manual mode
                                     if (newMode == CaptureMode.manual) {
-                                      _targetBox = null;
-                                      _animatedBox = null;
-                                      _stableFrameCount = 0;
-                                      _lastDetectedBox = null;
-                                      _stabilityStartTime = null;
                                       _detectionTimer?.cancel();
                                       _detectionTimer = null;
                                     }
@@ -288,7 +271,7 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
                           ),
                         ],
                       ),
-                    ) : const SizedBox.shrink(),
+                    ),
                     if(!_showSnapshot && _snapshotBytes == null && _snapshotBox == null)
                     Positioned(
                       bottom: 10,
@@ -443,183 +426,6 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
         ),
       ),
     );
-    // return Scaffold(
-    //   backgroundColor: Colors.black,
-    //   body: Stack(
-    //     fit: StackFit.expand,
-    //     children: [
-    //       if (_showSnapshot && _snapshotBytes != null && _snapshotBox != null)
-    //         Stack(
-    //           fit: StackFit.expand,
-    //           children: [
-    //             Image.memory(
-    //               _snapshotBytes!,
-    //               fit: BoxFit.cover,
-    //             ),
-    //             DraggableResizableBox(
-    //               initialBox: _snapshotBox!,
-    //               color: primaryColor,
-    //               isScanning: _isScanning,
-    //               onBoxChanged: (newBox) {
-    //                 setState(() {
-    //                   _snapshotBox = newBox;
-    //                 });
-    //               },
-    //             ),
-    //           ],
-    //         )
-    //       else if (_isCameraInitialized && _cameraController != null)
-    //         SizedBox.expand(
-    //           child: FittedBox(
-    //             fit: BoxFit.cover,
-    //             child: SizedBox(
-    //               width: _cameraController!.value.previewSize!.height,
-    //               height: _cameraController!.value.previewSize!.width,
-    //               child: CameraPreview(_cameraController!),
-    //             ),
-    //           ),
-    //         )
-    //       else
-    //         Center(
-    //           child: CircularProgressIndicator(color: primaryColor),
-    //         ),
-    //       if (!_showSnapshot && _targetBox != null && _captureMode == CaptureMode.automatic)
-    //         AnimatedBoxOverlay(
-    //           targetBox: _targetBox!,
-    //           currentBox: _animatedBox,
-    //           onBoxUpdate: (box) {
-    //             setState(() {
-    //               _animatedBox = box;
-    //             });
-    //           },
-    //           color: primaryColor,
-    //           pulseAnimation: _pulseAnimation,
-    //         ),
-    //       if (!_showSnapshot && _centerFrame != null)
-    //         Positioned.fill(
-    //           child: CustomPaint(
-    //             painter: CenterFramePainter(_centerFrame!, primaryColor),
-    //           ),
-    //         ),
-    //
-    //       // Bottom navigation (hide when snapshot is shown)
-    //       if (!_showSnapshot)
-    //         Positioned(
-    //           bottom: 80,
-    //           left: 0,
-    //           right: 0,
-    //           child: Container(
-    //             padding: const EdgeInsets.only(bottom: 40, top: 20),
-    //             child: Row(
-    //               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-    //               children: [
-    //                 Container(
-    //                   width: 50,
-    //                   height: 50,
-    //                   decoration: BoxDecoration(
-    //                     shape: BoxShape.circle,
-    //                     color: Colors.white.withOpacity(0.15),
-    //                     border: Border.all(
-    //                       color: Colors.white.withOpacity(0.3),
-    //                       width: 2,
-    //                     ),
-    //                   ),
-    //                   child: Material(
-    //                     color: Colors.transparent,
-    //                     child: InkWell(
-    //                       onTap: _pickFromGallery,
-    //                       borderRadius: BorderRadius.circular(32),
-    //                       child: const Center(
-    //                         child: Icon(
-    //                           Icons.photo_library_outlined,
-    //                           color: Colors.white,
-    //                           size: 25,
-    //                         ),
-    //                       ),
-    //                     ),
-    //                   ),
-    //                 ),
-    //                 Container(
-    //                   width: 65,
-    //                   height: 65,
-    //                   decoration: BoxDecoration(
-    //                     shape: BoxShape.circle,
-    //                     border: Border.all(
-    //                       color: Colors.white,
-    //                       width: 4,
-    //                     ),
-    //                     color: primaryColor,
-    //                   ),
-    //                   child: Material(
-    //                     color: Colors.transparent,
-    //                     child: InkWell(
-    //                       onTap: _manualCapture,
-    //                       borderRadius: BorderRadius.circular(40),
-    //                       child: const Center(
-    //                         child: Icon(
-    //                           Icons.camera_alt,
-    //                           color: Colors.white,
-    //                           size: 25,
-    //                         ),
-    //                       ),
-    //                     ),
-    //                   ),
-    //                 ),
-    //                 Center(
-    //                   child: Container(
-    //                     width: 50,
-    //                     height: 50,
-    //                     decoration: BoxDecoration(
-    //                       shape: BoxShape.circle,
-    //                       color: _isFlashOn
-    //                           ? Colors.amber.withOpacity(0.3)
-    //                           : Colors.white.withOpacity(0.15),
-    //                       border: Border.all(
-    //                         color: _isFlashOn
-    //                             ? Colors.amber
-    //                             : Colors.white.withOpacity(0.3),
-    //                         width: 2,
-    //                       ),
-    //                     ),
-    //                     child: Material(
-    //                       color: Colors.transparent,
-    //                       child: InkWell(
-    //                         onTap: _toggleFlash,
-    //                         borderRadius: BorderRadius.circular(28),
-    //                         child: Center(
-    //                           child: Icon(
-    //                             _isFlashOn ? Icons.flash_on : Icons.flash_off,
-    //                             color: _isFlashOn ? Colors.amber : Colors.white,
-    //                             size: 25,
-    //                           ),
-    //                         ),
-    //                       ),
-    //                     ),
-    //                   ),
-    //                 ),
-    //               ],
-    //             ),
-    //           ),
-    //         ),
-    //
-    //     ],
-    //   ),
-    // );
-  }
-
-  bool _isBoxStable(Rect newBox) {
-    if (_lastDetectedBox == null) {
-      return false;
-    }
-
-    // Check if position and size changes are within threshold
-    final positionDiff = (newBox.center - _lastDetectedBox!.center).distance;
-    final widthDiff = (newBox.width - _lastDetectedBox!.width).abs();
-    final heightDiff = (newBox.height - _lastDetectedBox!.height).abs();
-
-    return positionDiff < _stabilityThreshold &&
-        widthDiff < _stabilityThreshold &&
-        heightDiff < _stabilityThreshold;
   }
 
   Future<void> _toggleFlash() async {
@@ -712,6 +518,7 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
 
     setState(() {
       _isSheetVisible = true;
+      isMenuVisible = true;
     });
 
     try {
@@ -725,7 +532,7 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
       final resultProvider = Provider.of<ResultProvider>(context, listen: false);
       final dbHelper = DatabaseHelper.instance;
 
-      SubjectSelectionSheet.show(context, (subject) async {
+      await SubjectSelectionSheet.show(context, (subject) async {
         if (!mounted) return;
 
         final resultId = DateTime.now().millisecondsSinceEpoch.toString();
@@ -757,11 +564,15 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
         );
 
         _resetCamera();
+      },(){
+        setState(() {
+          isMenuVisible = false;
+        });
       }).whenComplete(() {
         if (!mounted) return;
-        setState(() {
-          _showConfirmation = false;
-        });
+      });
+      setState(() {
+        isMenuVisible = false;
       });
     } catch (e) {
       debugPrint('Error cropping image: $e');
@@ -807,14 +618,10 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
       // Reset state
       setState(() {
         _isCameraInitialized = false;
-        _targetBox = null;
-        _animatedBox = null;
-        _stableFrameCount = 0;
-        _lastDetectedBox = null;
       });
 
       // Initialize new camera
-      await _initializeCamera(nextCamera);
+      await _initializeCamera();
     } catch (e) {
       if (mounted) {
         debugPrint('Error flipping camera: $e');
@@ -822,28 +629,27 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
     }
   }
 
-  Future<void> _initializeCamera([CameraDescription? camera]) async {
+  Future<void> _initializeCamera() async {
     try {
-      _cameras = await availableCameras();
-      if (_cameras != null && _cameras!.isNotEmpty) {
-        // Use provided camera or default to first one
-        final selectedCamera = camera ?? _cameras![0];
+      final cameras = await availableCameras();
+      if (cameras.isEmpty) return;
 
-        _cameraController = CameraController(
-          selectedCamera,
-          ResolutionPreset.high,
-          enableAudio: false,
-          imageFormatGroup: ImageFormatGroup.yuv420,
-        );
+      final camera = cameras.first;
 
-        await _cameraController!.initialize();
+      _cameraController = CameraController(
+        camera,
+        ResolutionPreset.high, // or ResolutionPreset.veryHigh for even better quality
+        enableAudio: false,
+        imageFormatGroup: ImageFormatGroup.yuv420,
+      );
 
-        if (mounted) {
-          setState(() {
-            _isCameraInitialized = true;
-          });
-          _cameraController!.startImageStream(_processCameraImage);
-        }
+      await _cameraController!.initialize();
+      await _cameraController!.setFlashMode(FlashMode.off);
+
+      if (mounted) {
+        setState(() {
+          _isCameraInitialized = true;
+        });
       }
     } catch (e) {
       debugPrint('Error initializing camera: $e');
@@ -855,124 +661,6 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
 
     final boxCenter = box.center;
     return _centerFrame!.contains(boxCenter);
-  }
-
-  void _processCameraImage(CameraImage image) async {
-    if (_isProcessing || _isSheetVisible || _showSnapshot) return;
-
-    final now = DateTime.now();
-    // Increase interval to 300ms for better performance
-    if (_lastProcessTime != null && now.difference(_lastProcessTime!).inMilliseconds < 300) {
-      return;
-    }
-
-    _isProcessing = true;
-    _lastProcessTime = now;
-
-    try {
-      final WriteBuffer allBytes = WriteBuffer();
-      for (final Plane plane in image.planes) {
-        allBytes.putUint8List(plane.bytes);
-      }
-      final bytes = allBytes.done().buffer.asUint8List();
-
-      final inputImage = InputImage.fromBytes(
-        bytes: bytes,
-        metadata: InputImageMetadata(
-          size: Size(image.width.toDouble(), image.height.toDouble()),
-          rotation: InputImageRotation.rotation90deg,
-          format: InputImageFormat.yuv420,
-          bytesPerRow: image.planes[0].bytesPerRow,
-        ),
-      );
-
-      final recognizedText = await _textRecognizer.processImage(inputImage);
-
-      Rect? largestBox;
-      int maxTextLength = 2;
-
-      for (TextBlock block in recognizedText.blocks) {
-        final scaledBox = _scaleRect(
-          block.boundingBox,
-          image.width.toDouble(),
-          image.height.toDouble(),
-        );
-
-        if (_containsMathContent(block.text) &&
-            block.text.length > maxTextLength) {
-          maxTextLength = block.text.length;
-          largestBox = scaledBox;
-        }
-      }
-
-      if (mounted && largestBox != null) {
-        _stabilityStartTime ??= now;
-
-        final stabilityDuration = now.difference(_stabilityStartTime!);
-        if (stabilityDuration.inSeconds >= _stabilityTimeoutSeconds) {
-          debugPrint('Stability timeout - resetting detection');
-          _stableFrameCount = 0;
-          _lastDetectedBox = null;
-          _stabilityStartTime = null;
-          _targetBox = null;
-          _animatedBox = null;
-        } else {
-          if (_isBoxStable(largestBox)) {
-            _stableFrameCount++;
-            debugPrint('Stable frame: $_stableFrameCount/$_requiredStableFrames');
-          } else {
-            _stableFrameCount = 0;
-            _stabilityStartTime = now;
-          }
-
-          _lastDetectedBox = largestBox;
-
-          // Only update UI if box changed significantly
-          final shouldUpdate = _targetBox == null ||
-              (_targetBox!.center - largestBox.center).distance > 10;
-
-          if (shouldUpdate) {
-            _targetBox = largestBox;
-            _animatedBox ??= largestBox;
-
-            // Batch setState calls
-            if (mounted) {
-              setState(() {});
-            }
-          }
-
-          if (_stableFrameCount >= _requiredStableFrames) {
-            debugPrint('Box stable - capturing snapshot');
-            if (isPressedCapture) {
-              await _captureSnapshot(image, largestBox);
-              _stableFrameCount = 0;
-              _lastDetectedBox = null;
-              _stabilityStartTime = null;
-            }
-          }
-        }
-      } else {
-        if (isPressedCapture) {
-          Navigator.pop(context);
-          isPressedCapture = false;
-        }
-        _stableFrameCount = 0;
-        _lastDetectedBox = null;
-        _stabilityStartTime = null;
-
-        if (_targetBox != null || _animatedBox != null) {
-          _targetBox = null;
-          _animatedBox = null;
-          if (mounted) {
-            setState(() {});
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('Error processing frame: $e');
-    } finally {
-      _isProcessing = false;
-    }
   }
 
   Future<void> _pickFromGallery() async {
@@ -998,7 +686,7 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
         if (_cameraController != null &&
             _cameraController!.value.isInitialized &&
             !_cameraController!.value.isStreamingImages) {
-          _cameraController?.startImageStream(_processCameraImage);
+          // _cameraController?.startImageStream(_processCameraImage);
         }
         return;
       }
@@ -1045,7 +733,6 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
           height: frameHeight,
         );
       }
-
       // Dismiss loading dialog
       if (mounted) {
         Navigator.pop(context);
@@ -1059,7 +746,6 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
           _snapshotBox = displayBox;
           _showSnapshot = true;
           _isSheetVisible = false;
-          _showConfirmation = true;
           _isScanning = false;
         });
       }
@@ -1077,7 +763,7 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
       if (_cameraController != null &&
           _cameraController!.value.isInitialized &&
           !_cameraController!.value.isStreamingImages) {
-        _cameraController?.startImageStream(_processCameraImage);
+        // _cameraController?.startImageStream(_processCameraImage);
       }
     }
   }
@@ -1182,7 +868,6 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
         _showSnapshot = true;
         _isSheetVisible = false;
         _isScanning = false;
-        _showConfirmation = true;
         _cameraController?.dispose();
         _confirmCapture();
         if(isPressedCapture){
@@ -1207,19 +892,13 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
     setState(() {
       _showSnapshot = false;
       _isSheetVisible = false;
-      _targetBox = null;
-      _animatedBox = null;
       _snapshotBytes = null;
       _snapshotBox = null;
       _flashMode = FlashMode.off;
       _isFlashOn = false;
-      _stableFrameCount = 0;
-      _lastDetectedBox = null;
-      _stabilityStartTime = null;
-      _showConfirmation = false;
     });
     _cameraController?.setFlashMode(FlashMode.off);
-    _cameraController?.startImageStream(_processCameraImage);
+    // _cameraController?.startImageStream(_processCameraImage);
   }
 
   Rect _scaleRect(Rect rect, double width, double height) {

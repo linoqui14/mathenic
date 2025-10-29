@@ -11,8 +11,8 @@ class SubjectSelectionSheet extends StatelessWidget {
     this.onClosed,
   });
 
-  static Future<void> show(BuildContext context, Function(String) onSubjectSelected) {
-    return showModalBottomSheet(
+  static Future<void> show(BuildContext context, Function(String) onSubjectSelected, VoidCallback? onClosed,)  async {
+    return await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -22,8 +22,11 @@ class SubjectSelectionSheet extends StatelessWidget {
       builder: (context) => SubjectSelectionSheet(
         onSubjectSelected: onSubjectSelected,
       ),
-
-    );
+    ).whenComplete((){
+      if (onClosed != null) {
+        onClosed();
+      }
+    });
   }
 
   @override

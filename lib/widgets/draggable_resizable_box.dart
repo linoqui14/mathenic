@@ -29,21 +29,23 @@ class _DraggableResizableBoxState extends State<DraggableResizableBox>
   late Rect currentBox;
   late AnimationController _scanController;
   late AnimationController _stabilityController;
-  final double padding = 30.0;
   final double minSize = 50.0;
+  final double edgeHitWidth = 40.0; // Touch area for edges
 
   bool _isStable = false;
-  bool _isHolding = false;
   Timer? _stabilityTimer;
   DateTime? _lastMoveTime;
 
   @override
   void initState() {
     super.initState();
+
+    // ✅ EXPAND currentBox to match the visual box from the start
+    const padding = 30.0;
     currentBox = Rect.fromCenter(
       center: widget.initialBox.center,
-      width: widget.initialBox.width + (padding * 2),
-      height: widget.initialBox.height + (padding * 2),
+      width: widget.initialBox.width + padding * 2,
+      height: widget.initialBox.height + padding * 2,
     );
 
     _scanController = AnimationController(
@@ -60,20 +62,6 @@ class _DraggableResizableBoxState extends State<DraggableResizableBox>
   }
 
   @override
-  void didUpdateWidget(DraggableResizableBox oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.initialBox != widget.initialBox) {
-      setState(() {
-        currentBox = Rect.fromCenter(
-          center: widget.initialBox.center,
-          width: widget.initialBox.width,
-          height: widget.initialBox.height,
-        );
-      });
-    }
-  }
-
-  @override
   void dispose() {
     _scanController.dispose();
     _stabilityController.dispose();
@@ -86,13 +74,11 @@ class _DraggableResizableBoxState extends State<DraggableResizableBox>
     _stabilityTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
       if (_lastMoveTime != null) {
         final timeSinceMove = DateTime.now().difference(_lastMoveTime!);
-        if (timeSinceMove >= widget.stabilityDuration && !_isStable && !_isHolding) {
+        if (timeSinceMove >= widget.stabilityDuration && !_isStable) {
           setState(() {
             _isStable = true;
           });
-          if(widget.onStable != null) {
-            widget.onStable!(currentBox);
-          }
+          widget.onStable?.call(currentBox);
           _stabilityController.forward();
           HapticFeedback.heavyImpact();
         }
@@ -110,129 +96,161 @@ class _DraggableResizableBoxState extends State<DraggableResizableBox>
     }
   }
 
-  void _handlePanUpdate(DragUpdateDetails details, HandlePosition position) {
+  void _handleEdgeDrag(DragUpdateDetails details, EdgePosition edge) {
     _resetStability();
     setState(() {
       final delta = details.delta;
       final screenSize = MediaQuery.of(context).size;
       Rect newBox;
 
-      switch (position) {
-        case HandlePosition.topLeft:
+      switch (edge) {
+        case EdgePosition.top:
           newBox = Rect.fromLTRB(
-            currentBox.left + delta.dx,
-            currentBox.top + delta.dy,
+            currentBox.left,
+            (currentBox.top + delta.dy).clamp(0.0, currentBox.bottom - minSize),
             currentBox.right,
             currentBox.bottom,
           );
           break;
-        case HandlePosition.topRight:
+        case EdgePosition.bottom:
           newBox = Rect.fromLTRB(
             currentBox.left,
-            currentBox.top + delta.dy,
-            currentBox.right + delta.dx,
+            currentBox.top,
+            currentBox.right,
+            (currentBox.bottom + delta.dy).clamp(currentBox.top + minSize, screenSize.height),
+          );
+          break;
+        case EdgePosition.left:
+          newBox = Rect.fromLTRB(
+            (currentBox.left + delta.dx).clamp(0.0, currentBox.right - minSize),
+            currentBox.top,
+            currentBox.right,
             currentBox.bottom,
           );
           break;
-        case HandlePosition.bottomLeft:
-          newBox = Rect.fromLTRB(
-            currentBox.left + delta.dx,
-            currentBox.top,
-            currentBox.right,
-            currentBox.bottom + delta.dy,
-          );
-          break;
-        case HandlePosition.bottomRight:
+        case EdgePosition.right:
           newBox = Rect.fromLTRB(
             currentBox.left,
             currentBox.top,
-            currentBox.right + delta.dx,
-            currentBox.bottom + delta.dy,
+            (currentBox.right + delta.dx).clamp(currentBox.left + minSize, screenSize.width),
+            currentBox.bottom,
           );
-          break;
-        case HandlePosition.center:
-          newBox = currentBox.translate(delta.dx, delta.dy);
           break;
       }
 
-      newBox = _constrainBox(newBox, screenSize);
       currentBox = newBox;
       widget.onBoxChanged(currentBox);
     });
   }
 
-  Rect _constrainBox(Rect box, Size screenSize) {
-    double width = box.width.clamp(minSize, screenSize.width);
-    double height = box.height.clamp(minSize, screenSize.height);
-    double left = box.left.clamp(0.0, screenSize.width - width);
-    double top = box.top.clamp(0.0, screenSize.height - height);
-    return Rect.fromLTWH(left, top, width, height);
-  }
-
+  @override
   @override
   Widget build(BuildContext context) {
     return Stack(
       fit: StackFit.expand,
       children: [
+        // Semi-transparent overlay
         Positioned.fill(
-          child: CustomPaint(
-            painter: OverlayPainter(currentBox),
-          ),
-        ),
-        if (widget.isScanning)
-          Positioned.fill(
-            child: AnimatedBuilder(
-              animation: _scanController,
-              builder: (context, child) {
-                return CustomPaint(
-                  painter: ScanningPainter(
-                    currentBox,
-                    widget.color,
-                    _scanController.value,
-                  ),
-                );
-              },
+          child: IgnorePointer(
+            child: CustomPaint(
+              painter: OverlayPainter(currentBox),
             ),
           ),
+        ),
+
+        // Scanning animation
+        if (widget.isScanning)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: AnimatedBuilder(
+                animation: _scanController,
+                builder: (context, child) {
+                  return CustomPaint(
+                    painter: ScanningPainter(
+                      currentBox,
+                      widget.color,
+                      _scanController.value,
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+
+        // Border
         Positioned.fill(
+          child: IgnorePointer(
             child: CustomPaint(
               painter: StabilityBoxPainter(
                 currentBox,
                 widget.color,
                 _isStable,
               ),
-            )
-        ),
-        Positioned(
-          left: currentBox.left,
-          top: currentBox.top,
-          child: GestureDetector(
-            onPanStart: (_) {
-              print("Handle pressed - holding");
-              setState(() {
-                _isHolding = true;
-              });
-            },
-            onPanEnd: (_) {
-              print("Handle released");
-              setState(() {
-                _isHolding = false;
-              });
-              // Optional: handle release
-            },
-            onPanUpdate: (details) => _handlePanUpdate(details, HandlePosition.center),
-            child: Container(
-              width: currentBox.width,
-              height: currentBox.height,
-              color: Colors.transparent,
             ),
           ),
         ),
+
+        // Edge handles
+        _buildEdgeHandle(EdgePosition.top),
+        _buildEdgeHandle(EdgePosition.bottom),
+        _buildEdgeHandle(EdgePosition.left),
+        _buildEdgeHandle(EdgePosition.right),
+
+        // Corner handles
         _buildCornerHandle(HandlePosition.topLeft),
         _buildCornerHandle(HandlePosition.topRight),
         _buildCornerHandle(HandlePosition.bottomLeft),
         _buildCornerHandle(HandlePosition.bottomRight),
       ],
+    );
+  }
+
+  Widget _buildEdgeHandle(EdgePosition edge) {
+    const padding = 10.0; // ✅ Match AnimatedBoxPainter padding
+    const touchPadding = 20.0;
+
+    // Calculate the VISUAL box (what user sees on screen)
+    final visualBox = Rect.fromCenter(
+      center: currentBox.center,
+      width: currentBox.width + padding * 2,
+      height: currentBox.height + padding * 2,
+    );
+
+    Offset position;
+    Size size;
+
+    switch (edge) {
+      case EdgePosition.top:
+        position = Offset(visualBox.left, visualBox.top - touchPadding / 2);
+        size = Size(visualBox.width, touchPadding);
+        break;
+      case EdgePosition.bottom:
+        position = Offset(visualBox.left, visualBox.bottom - touchPadding / 2);
+        size = Size(visualBox.width, touchPadding);
+        break;
+      case EdgePosition.left:
+        position = Offset(visualBox.left - touchPadding / 2, visualBox.top);
+        size = Size(touchPadding, visualBox.height); // ✅ Now uses full height
+        break;
+      case EdgePosition.right:
+        position = Offset(visualBox.right - touchPadding / 2, visualBox.top);
+        size = Size(touchPadding, visualBox.height); // ✅ Now uses full height
+        break;
+    }
+
+    return Positioned(
+      left: position.dx,
+      top: position.dy,
+      child: GestureDetector(
+        onPanUpdate: (details) => _handleEdgeDrag(details, edge),
+        child: Container(
+          width: size.width,
+          height: size.height,
+          color: Colors.transparent,
+          // Uncomment to debug touch areas:
+          // color: Colors.red.withOpacity(0.3),
+        ),
+      ),
     );
   }
 
@@ -252,28 +270,13 @@ class _DraggableResizableBoxState extends State<DraggableResizableBox>
       case HandlePosition.bottomRight:
         offset = Offset(currentBox.right - 20, currentBox.bottom - 20);
         break;
-      case HandlePosition.center:
-        return const SizedBox.shrink();
     }
 
     return Positioned(
       left: offset.dx,
       top: offset.dy,
       child: GestureDetector(
-        onPanStart: (_) {
-          print("Handle pressed - holding");
-          setState(() {
-            _isHolding = true;
-          });
-        },
-        onPanEnd: (_) {
-          print("Handle released");
-          setState(() {
-            _isHolding = false;
-          });
-          // Optional: handle release
-        },
-        onPanUpdate: (details) => _handlePanUpdate(details, position),
+        onPanUpdate: (details) => _handleCornerDrag(details, position),
         child: Container(
           width: 40,
           height: 40,
@@ -289,9 +292,57 @@ class _DraggableResizableBoxState extends State<DraggableResizableBox>
       ),
     );
   }
+
+  void _handleCornerDrag(DragUpdateDetails details, HandlePosition position) {
+    _resetStability();
+    setState(() {
+      final delta = details.delta;
+      final screenSize = MediaQuery.of(context).size;
+      Rect newBox;
+
+      switch (position) {
+        case HandlePosition.topLeft:
+          newBox = Rect.fromLTRB(
+            (currentBox.left + delta.dx).clamp(0.0, currentBox.right - minSize),
+            (currentBox.top + delta.dy).clamp(0.0, currentBox.bottom - minSize),
+            currentBox.right,
+            currentBox.bottom,
+          );
+          break;
+        case HandlePosition.topRight:
+          newBox = Rect.fromLTRB(
+            currentBox.left,
+            (currentBox.top + delta.dy).clamp(0.0, currentBox.bottom - minSize),
+            (currentBox.right + delta.dx).clamp(currentBox.left + minSize, screenSize.width),
+            currentBox.bottom,
+          );
+          break;
+        case HandlePosition.bottomLeft:
+          newBox = Rect.fromLTRB(
+            (currentBox.left + delta.dx).clamp(0.0, currentBox.right - minSize),
+            currentBox.top,
+            currentBox.right,
+            (currentBox.bottom + delta.dy).clamp(currentBox.top + minSize, screenSize.height),
+          );
+          break;
+        case HandlePosition.bottomRight:
+          newBox = Rect.fromLTRB(
+            currentBox.left,
+            currentBox.top,
+            (currentBox.right + delta.dx).clamp(currentBox.left + minSize, screenSize.width),
+            (currentBox.bottom + delta.dy).clamp(currentBox.top + minSize, screenSize.height),
+          );
+          break;
+      }
+
+      currentBox = newBox;
+      widget.onBoxChanged(currentBox);
+    });
+  }
 }
 
-enum HandlePosition { topLeft, topRight, bottomLeft, bottomRight, center }
+enum HandlePosition { topLeft, topRight, bottomLeft, bottomRight }
+enum EdgePosition { top, bottom, left, right }
 
 class OverlayPainter extends CustomPainter {
   final Rect box;
@@ -468,9 +519,6 @@ class CornerHandlePainter extends CustomPainter {
           )
           ..lineTo(size.width - offset - length, size.height - offset);
         canvas.drawPath(path, paint);
-        break;
-
-      case HandlePosition.center:
         break;
     }
   }
