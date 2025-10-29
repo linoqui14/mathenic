@@ -30,7 +30,7 @@ class MyApp extends StatelessWidget {
         return MaterialApp(
           title: 'Scan & Solve',
           debugShowCheckedModeBanner: false,
-          themeMode: themeProvider.themeMode,
+          themeMode: ThemeMode.dark,
           theme: AppTheme.lightTheme,
           darkTheme: AppTheme.darkTheme,
           home: const MainNavigation(),
