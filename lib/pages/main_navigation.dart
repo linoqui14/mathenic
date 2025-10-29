@@ -87,7 +87,7 @@ class _MainNavigationState extends State<MainNavigation> {
                 icon: Stack(
                   alignment: Alignment.center,
                   children: [
-                    FaIcon(FontAwesomeIcons.camera, color: Colors.grey, size: 20),
+                    FaIcon(FontAwesomeIcons.cameraRetro, color: Colors.grey, size: 20),
                     Container(
                       margin: const EdgeInsets.only(top: 2.5),
                       width: 5,

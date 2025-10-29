@@ -183,7 +183,7 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
                       Center(
                         child: CircularProgressIndicator(color: primaryColor),
                       ),
-                    if (!_showSnapshot && _targetBox != null )
+                    if (!_showSnapshot && _targetBox != null && _captureMode == CaptureMode.automatic)
                       AnimatedBoxOverlay(
                         targetBox: _targetBox!,
                         currentBox: _animatedBox,
@@ -396,7 +396,7 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
                           height: 78,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: Colors.cyan,
+                            color: Colors.purple,
                           ),
                           child: (_showSnapshot && _snapshotBytes != null && _snapshotBox != null) ? Center(
                             child: FaIcon(
@@ -861,7 +861,8 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
     if (_isProcessing || _isSheetVisible || _showSnapshot) return;
 
     final now = DateTime.now();
-    if (_lastProcessTime != null && now.difference(_lastProcessTime!).inMilliseconds < 150) {
+    // Increase interval to 300ms for better performance
+    if (_lastProcessTime != null && now.difference(_lastProcessTime!).inMilliseconds < 300) {
       return;
     }
 
@@ -888,7 +889,7 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
       final recognizedText = await _textRecognizer.processImage(inputImage);
 
       Rect? largestBox;
-      int maxTextLength = 3;
+      int maxTextLength = 2;
 
       for (TextBlock block in recognizedText.blocks) {
         final scaledBox = _scaleRect(
@@ -899,7 +900,6 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
 
         if (_containsMathContent(block.text) &&
             block.text.length > maxTextLength) {
-
           maxTextLength = block.text.length;
           largestBox = scaledBox;
         }
@@ -914,10 +914,8 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
           _stableFrameCount = 0;
           _lastDetectedBox = null;
           _stabilityStartTime = null;
-          setState(() {
-            _targetBox = null;
-            _animatedBox = null;
-          });
+          _targetBox = null;
+          _animatedBox = null;
         } else {
           if (_isBoxStable(largestBox)) {
             _stableFrameCount++;
@@ -929,17 +927,23 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
 
           _lastDetectedBox = largestBox;
 
-          setState(() {
+          // Only update UI if box changed significantly
+          final shouldUpdate = _targetBox == null ||
+              (_targetBox!.center - largestBox.center).distance > 10;
+
+          if (shouldUpdate) {
             _targetBox = largestBox;
-            if (_animatedBox == null) {
-              _animatedBox = largestBox;
+            _animatedBox ??= largestBox;
+
+            // Batch setState calls
+            if (mounted) {
+              setState(() {});
             }
-          });
+          }
 
           if (_stableFrameCount >= _requiredStableFrames) {
-            // _detectionTimer?.cancel();
             debugPrint('Box stable - capturing snapshot');
-            if (_captureMode == CaptureMode.automatic || isPressedCapture) {
+            if (isPressedCapture) {
               await _captureSnapshot(image, largestBox);
               _stableFrameCount = 0;
               _lastDetectedBox = null;
@@ -955,10 +959,14 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
         _stableFrameCount = 0;
         _lastDetectedBox = null;
         _stabilityStartTime = null;
-        setState(() {
+
+        if (_targetBox != null || _animatedBox != null) {
           _targetBox = null;
           _animatedBox = null;
-        });
+          if (mounted) {
+            setState(() {});
+          }
+        }
       }
     } catch (e) {
       debugPrint('Error processing frame: $e');
@@ -1189,7 +1197,7 @@ class _CameraPageState extends State<CameraPage> with SingleTickerProviderStateM
   }
 
   Future<void> _manualCapture() async {
-    _showLoadingDialog(message: 'Scanning...');
+    _showLoadingDialog(message: 'Please stay still while scanning...');
     setState(() {
       isPressedCapture = true;
     });
